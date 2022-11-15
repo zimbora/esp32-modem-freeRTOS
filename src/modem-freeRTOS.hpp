@@ -55,21 +55,21 @@ class MODEMfreeRTOS{
   public:
     // public
     void init(uint16_t cops, uint8_t mode, uint8_t pwkey);
-    bool set_context(uint8_t contextID, String apn, String user, String pwd);
     void loop();
+    bool set_context(uint8_t contextID, String apn, String user, String pwd);
 
     void mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd);
     void mqtt_set_will_topic(uint8_t clientID, String topic, String payload);
     void mqtt_add_subscribe_topic(uint8_t clientID, uint8_t index, String topic);
     void mqtt_setup(void(*callback)());
+    bool mqtt_pushMessage(uint8_t clientID, const String& topic, const String& message, uint8_t qos, uint8_t retain);
+    MQTT_MSG* mqtt_getNextMessage(MQTT_MSG *pxRxedMessage);
 
     //bool mqtt_parse_msg(uint8_t clientID, String topic, String payload);
     /*
     int8_t mqtt_get_subscriptions_size();
     */
-    bool mqtt_pushMessage(uint8_t clientID, const String& topic, const String& message, uint8_t qos, uint8_t retain);
 
-    MQTT_MSG* mqtt_getMessageNextMessage(MQTT_MSG *pxRxedMessage);
   private:
     void mqtt_sendMessage();
     /*

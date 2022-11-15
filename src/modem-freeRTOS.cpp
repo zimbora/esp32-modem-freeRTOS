@@ -29,7 +29,13 @@ bool mqtt_parse_msg(uint8_t clientID, String topic, String payload){
   return true;
 }
 
-
+/*
+* init hw interface and class
+*
+* @cops - operator selection, if 0 let modem search automatically
+* @mode - radio technology GSM:1/GPRS:2/NB:3/CATM1:4/AUTO:5 (auto for any available technology)
+* @pwkey - gpio to switchOn module
+*/
 void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
 
   mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG * ) );
@@ -53,87 +59,11 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
   // init contexts
 }
 
-bool MODEMfreeRTOS::set_context(uint8_t contextID, String apn, String user, String pwd){
-  if(contextID == 0 || contextID > MAX_CONNECTIONS)
-    return false;
-
-  return modem.setup(contextID,apn,user,pwd);
-}
-
 /*
-* changes mqtt connection parameters
-*
-* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
-* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
-* @project - string to create prefix of topic - :project/:uid/...
-* @host - IP or DNS of server
-* @user - credential username
-* @pwd - credential password
+* Executes whatever is needed
+* call it always that is possible
 */
-void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd){
-  if(clientID > MAX_MQTT_CONNECTIONS)
-    return;
-  mqtt[clientID].contextID = contextID;
-  mqtt[clientID].nick = uid;
-  mqtt[clientID].prefix = project+"/"+uid;
-  mqtt[clientID].host = host;
-  mqtt[clientID].port = port;
-  mqtt[clientID].user = user;
-  mqtt[clientID].pwd = pwd;
-}
-
-/*
-* mqtt set will
-*
-* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
-* @topic - without prefix
-* @payload - data to be written on topic
-*/
-void MODEMfreeRTOS::mqtt_set_will_topic(uint8_t clientID, String topic, String payload){
-
-  mqtt[clientID].will_topic = topic;
-  mqtt[clientID].will_payload = payload;
-}
-
-/*
-* mqtt adds topic to be subscribed, limited to 10 topics
-*
-* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
-* @index 0-9
-* @topic - without prefix
-*/
-void MODEMfreeRTOS::mqtt_add_subscribe_topic(uint8_t clientID, uint8_t index, String topic){
-
-  if(index >= 10)
-    return;
-
-  mqtt[clientID].subscribe_topics[index] = topic;
-}
-
-void MODEMfreeRTOS::mqtt_setup(void(*callback)()){
-
-  mqttOnConnect = callback;
-  mqtt_callback = &mqtt_parse_msg;
-  modem.MQTT_init(mqtt_callback);
-
-  for(uint8_t i = 0; i<MAX_MQTT_CONNECTIONS; i++){
-    if(mqtt[i].contextID != 0)
-      modem.MQTT_setup(i,mqtt[i].contextID,mqtt[i].prefix+mqtt[i].will_topic,mqtt[i].will_payload);
-  }
-}
-
 void MODEMfreeRTOS::loop(){
-  /*
-  // if priority is wifi
-  if(!mqtt_connected()){
-      mqtt_connect();
-  }else{
-    #ifdef WIFI_MQTT_ENABLE
-      if(mqtt_wifi_connected())
-        mqtt_wifi_loop();
-    #endif
-  }
-  */
 
   // LTE
   if(modem.loop(5000)){ // state was updated
@@ -162,48 +92,101 @@ void MODEMfreeRTOS::loop(){
     modem.log_status();
   }
 
-  mqtt_sendMessage();
+  mqtt_sendMessage(); // check
 
-  /*
-  if(!state_connected && mqtt_connected()){
-    state_connected = true;
-    mqtt_pushMessage("/status","online",1,true);
-    mqtt_pushMessage("/fw","{\"version\":\""+String(PACKAGE_VERSION)+"\",\"model\":"+String(PACKAGE_MODEL)+",\"hash\":\""+String(settings.fw.hash)+"\"}",1,false);
-  }else if(state_connected && !mqtt_connected()){
-    state_connected = false;
+}
+
+/*
+* activates and sets contextID
+*
+* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
+* @apn - operator intranetwork
+* @user - apn credentials
+* @pwd - apn credentials
+*/
+bool MODEMfreeRTOS::set_context(uint8_t contextID, String apn, String user, String pwd){
+  if(contextID == 0 || contextID > MAX_CONNECTIONS)
+    return false;
+
+  return modem.setup(contextID,apn,user,pwd);
+}
+
+/*
+* call it before mqtt_setup
+* changes mqtt connection parameters
+*
+* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
+* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
+* @project - string to create prefix of topic - :project/:uid/...
+* @host - IP or DNS of server
+* @user - credential username
+* @pwd - credential password
+*/
+void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd){
+  if(clientID > MAX_MQTT_CONNECTIONS)
+    return;
+  mqtt[clientID].contextID = contextID;
+  mqtt[clientID].nick = uid;
+  mqtt[clientID].prefix = project+"/"+uid;
+  mqtt[clientID].host = host;
+  mqtt[clientID].port = port;
+  mqtt[clientID].user = user;
+  mqtt[clientID].pwd = pwd;
+}
+
+/*
+* call it before mqtt_setup
+* mqtt set will
+*
+* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
+* @topic - without prefix
+* @payload - data to be written on topic
+*/
+void MODEMfreeRTOS::mqtt_set_will_topic(uint8_t clientID, String topic, String payload){
+
+  mqtt[clientID].will_topic = topic;
+  mqtt[clientID].will_payload = payload;
+}
+
+/*
+* call it before mqtt_setup
+* mqtt configuration adds topic to be subscribed, limited to 10 topics
+*
+* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
+* @index 0-9
+* @topic - without prefix
+*/
+void MODEMfreeRTOS::mqtt_add_subscribe_topic(uint8_t clientID, uint8_t index, String topic){
+
+  if(index >= 10)
+    return;
+
+  mqtt[clientID].subscribe_topics[index] = topic;
+}
+
+/*
+* Init mqtt and configures callback to be called when connection is established
+*/
+void MODEMfreeRTOS::mqtt_setup(void(*callback)()){
+
+  mqttOnConnect = callback;
+  mqtt_callback = &mqtt_parse_msg;
+  modem.MQTT_init(mqtt_callback);
+
+  for(uint8_t i = 0; i<MAX_MQTT_CONNECTIONS; i++){
+    if(mqtt[i].contextID != 0)
+      modem.MQTT_setup(i,mqtt[i].contextID,mqtt[i].prefix+mqtt[i].will_topic,mqtt[i].will_payload);
   }
-
-  mqtt_sendMessage();
-  */
 }
 
 
-void mqtt_enqueue_msg(uint8_t clientID, String topic, String payload){
-
-  //#ifdef DEBUG_MQTT_GW
-  Serial.println("[mqtt] << ["+String(clientID)+"] "+topic + " : " + payload);
-  //#endif
-  struct MQTT_MSG *pxMessage;
-
-  if( mqttRxQueue != 0 && uxQueueSpacesAvailable(mqttRxQueue) > 0){
-     // Send a pointer to a struct AMessage object.  Don't block if the
-     // queue is already full.
-     pxMessage = &rcv_mqtt_msg[uxQueueMessagesWaiting(mqttRxQueue)];
-     memset(pxMessage->topic,0,100);
-     memset(pxMessage->data,0,255);
-
-     memcpy(pxMessage->topic,topic.c_str(),topic.length());
-     memcpy(pxMessage->data,payload.c_str(),payload.length());
-     pxMessage->clientID = clientID;
-     xQueueGenericSend( mqttRxQueue, ( void * ) &pxMessage, ( TickType_t ) 0, queueSEND_TO_BACK );
-  }else{
-    #ifdef WARNING_MQTT_GW
-    log("mqtt rx no space available");
-    #endif
-  }
-}
-
-MQTT_MSG* MODEMfreeRTOS::mqtt_getMessageNextMessage(MQTT_MSG *pxRxedMessage){
+/*
+* use it to get received messages.
+*
+* returns a pointer to MQTT_MSG struct containing the received message
+* if no message is available it returns NULL
+*/
+MQTT_MSG* MODEMfreeRTOS::mqtt_getNextMessage(MQTT_MSG *pxRxedMessage){
 
   if( mqttRxQueue != 0 && uxQueueMessagesWaiting(mqttRxQueue) > 0){
      // get a message on the created queue.  Block for 10 ticks if a
@@ -218,56 +201,15 @@ MQTT_MSG* MODEMfreeRTOS::mqtt_getMessageNextMessage(MQTT_MSG *pxRxedMessage){
   return NULL;
 }
 
-/*
-void mqtt_connect(){
-
-  #ifdef WIFI_MQTT_ENABLE
-    // if priority is wifi
-    if(!network_wifi_isConnected())
-      return;
-
-    Serial.println("[mqtt wifi] try to connect");
-    void (*callback)(String, String, uint16_t);
-    callback = &mqtt_enqueue_msg;
-    mqtt_wifi_connect(callback);
-  #endif
-
-}
-
-bool mqtt_connected(){
-
-  bool wifi_mqtt_connected = false;
-  bool modem_mqtt_connected = false;
-  #ifdef WIFI_MQTT_ENABLE
-    wifi_mqtt_connected = mqtt_wifi_connected();
-  #endif
-  #ifdef ENABLE_LTE
-    modem_mqtt_connected = network_gprs_mqtt_connected();
-  #endif
-  return wifi_mqtt_connected|modem_mqtt_connected;
-}
-
-void mqtt_disconnect(){
-
-  #ifdef WIFI_MQTT_ENABLE
-    if(mqtt_wifi_connected())
-      mqtt_wifi_disconnect();
-  #endif
-
-  if(network_gprs_mqtt_connected())
-    network_gprs_mqtt_disconnect();
-
-}
-
-int8_t mqtt_get_subscriptions_size(){
-
-  return (int8_t)NUMITEMS(mqtt_subscribe_topics);
-
-}
-*/
 
 /*
-* send received message to Queue
+* use it to send mqtt messages
+*
+* @clientID 0-5, mqtt index client
+* @topic - topic without prefix, must start with '/', topic is added thereafter
+* @message - payload
+* @qos 0-2
+* @retain true|false
 */
 bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, const String& message, uint8_t qos, uint8_t retain) {
 
@@ -307,9 +249,10 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
 }
 
 /*
-* call network interface to send mqtt message
+* private method
+* checks if queue has messages to be sent.
+* If has it will send using an available network interface
 */
-
 void MODEMfreeRTOS::mqtt_sendMessage(){
 
   struct MQTT_MSG *pxMessage;
@@ -337,44 +280,43 @@ void MODEMfreeRTOS::mqtt_sendMessage(){
         return;
       }
 
-
       if(!modem.MQTT_connected(clientID)){
         mqtt_pushMessage(clientID,topic,data,qos,retain);
         return;
+      }else{
+        //log("[mqtt] >> "+topic + " : " + data);
+        modem.MQTT_publish(clientID,++mqtt[clientID].msg_id,qos,retain,topic,data);
       }
-
-
-      //log("[mqtt] >> "+topic + " : " + data);
-      modem.MQTT_publish(clientID,++mqtt[clientID].msg_id,qos,retain,topic,data);
-      /*
-      #ifdef WIFI_MQTT_ENABLE
-        if(mqtt_wifi_connected()){
-          if(!mqtt_wifi_publish(topic,data,retain)){
-            xSemaphoreGive(mqttTxQueueMutex);
-            return;
-          }
-        }else{
-          #ifdef ENABLE_LTE
-            if(!mqtt_wifi_connected() && network_gprs_mqtt_connected()){
-              if(!network_gprs_mqtt_sendMessage(pxMessage->topic,pxMessage->data,pxMessage->retain)){
-                xSemaphoreGive(mqttTxQueueMutex);
-                return;
-              }
-            }
-          #endif
-        }
-      #elif defined ENABLE_LTE
-
-        if(network_gprs_mqtt_connected()){
-          if(!network_gprs_mqtt_sendMessage(pxMessage->topic,pxMessage->data,pxMessage->retain)){
-            xSemaphoreGive(mqttTxQueueMutex);
-            return;
-          }
-        }
-      #endif
-      */
     }
 
   }
   xSemaphoreGive(mqttTxQueueMutex);
+}
+
+/*
+* private method, called on received message. It adds message to queue
+*/
+void mqtt_enqueue_msg(uint8_t clientID, String topic, String payload){
+
+  //#ifdef DEBUG_MQTT_GW
+  Serial.println("[mqtt] << ["+String(clientID)+"] "+topic + " : " + payload);
+  //#endif
+  struct MQTT_MSG *pxMessage;
+
+  if( mqttRxQueue != 0 && uxQueueSpacesAvailable(mqttRxQueue) > 0){
+     // Send a pointer to a struct AMessage object.  Don't block if the
+     // queue is already full.
+     pxMessage = &rcv_mqtt_msg[uxQueueMessagesWaiting(mqttRxQueue)];
+     memset(pxMessage->topic,0,100);
+     memset(pxMessage->data,0,255);
+
+     memcpy(pxMessage->topic,topic.c_str(),topic.length());
+     memcpy(pxMessage->data,payload.c_str(),payload.length());
+     pxMessage->clientID = clientID;
+     xQueueGenericSend( mqttRxQueue, ( void * ) &pxMessage, ( TickType_t ) 0, queueSEND_TO_BACK );
+  }else{
+    #ifdef WARNING_MQTT_GW
+    log("mqtt rx no space available");
+    #endif
+  }
 }

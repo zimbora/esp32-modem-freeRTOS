@@ -64,7 +64,7 @@ void loop() {
 
   mRTOS.loop();
 
-  msg = mRTOS.mqtt_getMessageNextMessage(msg);
+  msg = mRTOS.mqtt_getNextMessage(msg);
   if(msg != NULL){
     Serial.println("new mqtt message received:");
     Serial.printf("<< [%d] ",msg->clientID);
