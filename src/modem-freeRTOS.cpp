@@ -5,8 +5,11 @@
 #define MQTT_RX_QUEUE_SIZE 10
 #define MQTT_TX_QUEUE_SIZE 10
 
-#define HTTP_RX_QUEUE_SIZE 1
-#define HTTP_TX_QUEUE_SIZE 1
+#define TCP_RX_QUEUE_SIZE 2
+#define TCP_TX_QUEUE_SIZE 2
+
+//#define HTTP_RX_QUEUE_SIZE 1
+//#define HTTP_TX_QUEUE_SIZE 1
 
 
 // MQTT
@@ -17,11 +20,20 @@ MQTT_MSG tx_mqtt_msg[MQTT_TX_QUEUE_SIZE];
 SemaphoreHandle_t mqttTxQueueMutex;
 MQTT_SETUP mqtt[MAX_MQTT_CONNECTIONS];
 
+// TCP
+QueueHandle_t tcpRxQueue;
+QueueHandle_t tcpTxQueue;
+TCP_MSG rcv_tcp_msg[TCP_RX_QUEUE_SIZE];
+TCP_MSG tx_tcp_msg[TCP_TX_QUEUE_SIZE];
+SemaphoreHandle_t tcpTxQueueMutex;
+TCP_SETUP tcp[MAX_TCP_CONNECTIONS];
+
 // HTTP
 
 
 MODEMBGXX modem;
 
+void (*tcpOnConnect)(uint8_t clientID);
 void (*mqttOnConnect)();
 bool (*mqtt_callback)(uint8_t,String,String);
 bool mqtt_parse_msg(uint8_t clientID, String topic, String payload){
@@ -41,16 +53,25 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
   mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG * ) );
   mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG * ) );
 
+  tcpRxQueue = xQueueCreate( TCP_RX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
+  tcpTxQueue = xQueueCreate( TCP_TX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
+
   /*
   httpTxQueue = xQueueCreate( HTTP_RX_QUEUE_SIZE, sizeof( struct HTTP_MSG * ) );
   httpRxQueue = xQueueCreate( HTTP_TX_QUEUE_SIZE, sizeof( struct HTTP_MSG * ) );
   */
 
   mqttTxQueueMutex = xSemaphoreCreateMutex();
+  tcpTxQueueMutex = xSemaphoreCreateMutex();
 
   for(uint8_t i = 0; i<MAX_MQTT_CONNECTIONS; i++){
     mqtt[i].contextID = 0;
     mqtt[i].msg_id = 0;
+  }
+
+  for(uint8_t i = 0; i<MAX_TCP_CONNECTIONS; i++){
+    tcp[i].contextID = 0;
+    tcp[i].active = false;
   }
 
   modem.init_port(115200,SERIAL_8N1);
@@ -89,10 +110,28 @@ void MODEMfreeRTOS::loop(){
       }
     }
 
+    for(uint8_t i=0; i<MAX_TCP_CONNECTIONS; i++){
+      if(tcp[i].contextID == 0)
+        continue;
+
+      if(modem.has_context(tcp[i].contextID)){
+        if(!modem.tcp_connected(i)){
+          if(modem.tcp_connect(tcp[i].contextID,i,tcp[i].host,tcp[i].port)){
+            if(tcpOnConnect != NULL)
+              tcpOnConnect(i);
+          }
+        }
+      }else{
+        modem.open_pdp_context(tcp[i].contextID);
+      }
+    }
+
     modem.log_status();
   }
 
-  mqtt_sendMessage(); // check
+  tcp_sendMessage();
+  tcp_checkMessages();
+  mqtt_sendMessage();
 
 }
 
@@ -251,7 +290,7 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
 /*
 * private method
 * checks if queue has messages to be sent.
-* If has it will send using an available network interface
+* If there is it will send using an available network interface
 */
 void MODEMfreeRTOS::mqtt_sendMessage(){
 
@@ -319,4 +358,191 @@ void mqtt_enqueue_msg(uint8_t clientID, String topic, String payload){
     log("mqtt rx no space available");
     #endif
   }
+}
+
+// --- TCP ---
+
+/*
+* call it before tcp_setup
+* changes tcp connection parameters
+* while clientID has contextID != 0, loop function will try to keep connection activated
+*
+* @clientID 0-5, limited to MAX_TCP_CONNECTIONS defined in bgxx library
+* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
+* @host - IP or DNS of server
+* @port
+*/
+void MODEMfreeRTOS::tcp_configure_connection(uint8_t clientID, uint8_t contextID, String host, uint16_t port){
+  if(clientID > MAX_TCP_CONNECTIONS)
+    return;
+  tcp[clientID].contextID = contextID;
+  tcp[clientID].host = host;
+  tcp[clientID].port = port;
+}
+
+/*
+* configures callbacks to be called when connection is established and closed
+*/
+void MODEMfreeRTOS::tcp_setup(void(*callback1)(uint8_t clientID),void(*callback2)(uint8_t clientID)){
+
+  tcpOnConnect = callback1;
+  modem.tcp_set_callback_on_close(callback2);
+}
+
+/*
+* private method
+* checks if there are data on buffers. Buffers are filled automatically and must be read with high frequency
+* if a long response is being received
+* Data is then sent to queue. Use tcp_getNextMessage to read data
+*/
+bool MODEMfreeRTOS::tcp_checkMessages(){
+
+  for(uint8_t i=0; i<MAX_TCP_CONNECTIONS; i++){
+    uint16_t len = modem.tcp_has_data(i);
+    if(len > 0){
+      char* data = (char*)malloc(len);
+      if(data != nullptr){
+        len = modem.tcp_recv(i,data,len);
+        /*
+        for(uint16_t i = 0; i<len; i++){
+          Serial.print((char)data[i]);
+        }
+        */
+        tcp_enqueue_msg(i,(const char*)data,len);
+        free(data);
+      }
+    }
+  }
+}
+
+/*
+* private method
+* called on received message. It adds message to queue
+*/
+void MODEMfreeRTOS::tcp_enqueue_msg(uint8_t clientID, const char* data, uint16_t data_len){
+
+  //#ifdef DEBUG_tcp_GW
+  Serial.println("[tcp] << ["+String(clientID)+"] size:" + String(data_len));
+  //#endif
+  struct TCP_MSG *pxMessage;
+
+  if( tcpRxQueue != 0 && uxQueueSpacesAvailable(tcpRxQueue) > 0){
+     // Send a pointer to a struct AMessage object.  Don't block if the
+     // queue is already full.
+     pxMessage = &rcv_tcp_msg[uxQueueMessagesWaiting(tcpRxQueue)];
+     memset(pxMessage->data,0,sizeof(pxMessage->data));
+     memcpy(pxMessage->data,data,data_len);
+     pxMessage->data_len = data_len;
+     pxMessage->clientID = clientID;
+     xQueueGenericSend( tcpRxQueue, ( void * ) &pxMessage, ( TickType_t ) 0, queueSEND_TO_BACK );
+  }else{
+    #ifdef WARNING_TCP_GW
+    log("tcp rx no space available");
+    #endif
+  }
+}
+
+/*
+* use it to get received messages.
+*
+* returns a pointer to TCP_MSG struct containing the received message
+* if no message is available it returns NULL
+*/
+TCP_MSG* MODEMfreeRTOS::tcp_getNextMessage(TCP_MSG *pxRxedMessage){
+
+  if( tcpRxQueue != 0 && uxQueueMessagesWaiting(tcpRxQueue) > 0){
+     // get a message on the created queue.  Block for 10 ticks if a
+     // message is not immediately available.
+     //if( xQueueReceive( tcpRxQueue, &( pxRxedMessage ), ( TickType_t ) 10 ) ){
+     if( xQueueReceive( tcpRxQueue, &( pxRxedMessage ), ( TickType_t ) 10 ) ){
+         // pcRxedMessage now points to the struct AMessage variable posted
+         // by vATask, but the item still remains on the queue.
+         return pxRxedMessage;
+     }
+  }
+  return NULL;
+}
+
+
+/*
+* use it to send tcp messages
+*
+* @clientID 0-5, tcp index client
+* @data - payload to be sent
+* @len - payload len
+* @retain true|false
+*/
+bool MODEMfreeRTOS::tcp_pushMessage(uint8_t clientID, const char* data, uint16_t len) {
+
+  if(clientID >= MAX_TCP_CONNECTIONS)
+    return false;
+  /*
+  if(qos == 0 && !tcp_connected())
+    return false;
+  */
+  struct TCP_MSG *pxMessage;
+
+  if( tcpTxQueue != 0 && uxQueueSpacesAvailable(tcpTxQueue) > 0){
+     // Send a pointer to a struct AMessage object.  Don't block if the
+     // queue is already full.
+     if(!xSemaphoreTake( tcpTxQueueMutex, 2000)){
+       xSemaphoreGive(tcpTxQueueMutex);
+       return false;
+     }
+
+     pxMessage = &tx_tcp_msg[uxQueueMessagesWaiting(tcpTxQueue)];
+     memset(pxMessage->data,0,sizeof(pxMessage->data));
+
+     memcpy(pxMessage->data,data,len);
+     pxMessage->data_len = len;
+     pxMessage->clientID = clientID;
+
+     bool res = xQueueSendToBack( tcpTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
+     xSemaphoreGive(tcpTxQueueMutex);
+     return res;
+  }
+
+  return false;
+
+}
+
+/*
+* private method
+* checks if queue has messages to be sent.
+* If there is it will send using an available network interface
+*/
+void MODEMfreeRTOS::tcp_sendMessage(){
+
+  struct TCP_MSG *pxMessage;
+
+  if(!xSemaphoreTake( tcpTxQueueMutex, 2000)){
+    xSemaphoreGive(tcpTxQueueMutex);
+    return;
+  }
+
+  while( tcpTxQueue != 0 && uxQueueMessagesWaiting(tcpTxQueue) > 0){
+    // get a message on the created queue.  Block for 10 ticks if a
+    // message is not immediately available.
+
+    //if( xQueueReceive( tcpTxQueue, &( pxRxedMessage ), ( TickType_t ) 10 ) ){
+    if( xQueueReceive( tcpTxQueue, &( pxMessage ), ( TickType_t ) 10 ) ){
+      // pcRxedMessage now points to the struct AMessage variable posted
+      // by vATask, but the item still remains on the queue.
+      uint8_t clientID = pxMessage->clientID;
+      if(clientID >= MAX_TCP_CONNECTIONS){
+        Serial.println("invalid tcp clientID");
+        return;
+      }
+
+      if(!modem.tcp_connected(clientID)){
+        tcp_pushMessage(clientID,pxMessage->data,pxMessage->data_len);
+        return;
+      }else{
+        //log("[tcp] >> "+topic + " : " + data);
+        modem.tcp_send(clientID,pxMessage->data,pxMessage->data_len);
+      }
+    }
+
+  }
+  xSemaphoreGive(tcpTxQueueMutex);
 }

@@ -5,21 +5,17 @@
 #include "Arduino.h"
 #include "modem-bgxx.hpp"
 
-/*
-#include "../../config/package.h"
-
-#ifdef WIFI_MQTT_ENABLE
-#include "../wifi/mqtt_wifi.h"
-#endif
-
-#include "../modem/network-gprs-mqtt.h"
-*/
+struct TCP_MSG
+{
+  char data[CONNECTION_BUFFER];
+  uint16_t data_len;
+  uint8_t clientID;
+};
 
 struct TCP_SETUP {
-	char server[64];
+	String host;
 	uint16_t port;
 	uint8_t contextID; // context id 1-16
-	uint8_t connectID; // connect id 0-11
 	uint8_t socket_state;
 	bool active;
 	bool connected;
@@ -58,6 +54,12 @@ class MODEMfreeRTOS{
     void loop();
     bool set_context(uint8_t contextID, String apn, String user, String pwd);
 
+    void tcp_configure_connection(uint8_t clientID, uint8_t contextID, String host, uint16_t port);
+    void tcp_setup(void(*callback1)(uint8_t clientID),void(*callback2)(uint8_t clientID));
+
+    TCP_MSG* tcp_getNextMessage(TCP_MSG *pxRxedMessage);
+    bool tcp_pushMessage(uint8_t clientID, const char* data, uint16_t len);
+
     void mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd);
     void mqtt_set_will_topic(uint8_t clientID, String topic, String payload);
     void mqtt_add_subscribe_topic(uint8_t clientID, uint8_t index, String topic);
@@ -72,6 +74,10 @@ class MODEMfreeRTOS{
 
   private:
     void mqtt_sendMessage();
+    
+    void tcp_sendMessage();
+    bool tcp_checkMessages();
+    void tcp_enqueue_msg(uint8_t clientID, const char* data, uint16_t data_len);
     /*
     bool mqtt_wifi_connect_configured();
     bool mqtt_wifi_connect_default();

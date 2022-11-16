@@ -30,6 +30,12 @@ Read and write on respective Queues
 [void loop()](#Loop)
 [bool set_context(uint8_t contextID, String apn, String user, String pwd)](#Set-context)
 
+### TCP
+[void tcp_configure_connection(uint8_t clientID, uint8_t contextID, String host, uint16_t port)](#TCP-configure-connection)
+[void tcp_setup(void(*callback1)(uint8_t clientID),void(*callback2)(uint8_t clientID))](#TCP-setup)
+[TCP_MSG* tcp_getNextMessage(TCP_MSG *pxRxedMessage)](#TCP-getNextMessage)
+[bool tcp_pushMessage(uint8_t clientID, const char* data, uint16_t len)](#TCP-pushMessage)
+
 ### MQTT
 [void mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd)](#MQTT-configure-connection)
 [void mqtt_set_will_topic(uint8_t clientID, String topic, String payload)](#MQTT-set-will-topic)
@@ -64,6 +70,47 @@ void loop();
 #### Set context
 ```
 bool set_context(uint8_t contextID, String apn, String user, String pwd);
+```
+
+### TCP
+
+#TCP configure connection
+* call it before tcp_setup
+* changes tcp connection parameters
+* while clientID has contextID != 0, loop function will try to keep connection activated
+*
+* @clientID 0-5, limited to MAX_TCP_CONNECTIONS defined in bgxx library
+* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
+* @host - IP or DNS of server
+* @port
+```
+void tcp_configure_connection(uint8_t clientID, uint8_t contextID, String host, uint16_t port)
+```
+
+#TCP setup
+* configures callbacks to be called when connection is established and closed
+```
+void tcp_setup(void(*callback1)(uint8_t clientID),void(*callback2)(uint8_t clientID))
+```
+
+#TCP getNextMessage
+* use it to get received messages.
+*
+* returns a pointer to TCP_MSG struct containing the received message
+* if no message is available it returns NULL
+```
+TCP_MSG* tcp_getNextMessage(TCP_MSG *pxRxedMessage)
+```
+#TCP pushMessage
+* use it to send tcp messages
+*
+* @clientID 0-5, tcp index client
+* @data - payload to be sent
+* @len - payload len
+*
+* @retain true|false
+```
+bool tcp_pushMessage(uint8_t clientID, const char* data, uint16_t len)
 ```
 
 ### MQTT
