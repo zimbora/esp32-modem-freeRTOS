@@ -10,17 +10,6 @@
 #define CLIENTID 0
 #define CONTEXTID 1
 
-// freeRTOS
-#if CONFIG_FREERTOS_UNICORE
-#define ARDUINO_RUNNING_CORE 0
-#else
-#define ARDUINO_RUNNING_CORE 1
-#endif
-
-//#define CORE_STACK_SIZE 2048*8
-//StackType_t xStack_core[ CORE_STACK_SIZE ];
-//StaticTask_t xTaskBuffer_core;
-
 MODEMfreeRTOS mRTOS;
 
 HTTP_HEADER_MSG* msg_header;

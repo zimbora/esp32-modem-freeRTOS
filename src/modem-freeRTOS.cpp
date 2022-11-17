@@ -83,7 +83,7 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
   }
 
   modem.init_port(115200,SERIAL_8N1);
-  modem.init(cops,mode,pwkey);
+  modem.init(mode,cops,pwkey);
 
   // init contexts
 }
