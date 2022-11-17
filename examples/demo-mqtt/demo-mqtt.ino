@@ -27,8 +27,7 @@ String mqtt_subscribe_topics[] = {
 MODEMfreeRTOS mRTOS;
 void (*callback)();
 void mqttOnConnect(){
-  //mqtt_enqueue_msg(clientID,topic,payload);
-  Serial.println("push messages to queue");
+  Serial.println("mqtt is connected - sending first message");
   mRTOS.mqtt_pushMessage(CLIENTID,"/status","online",2,true);
   return;
 }
