@@ -98,25 +98,31 @@ void MODEMfreeRTOS::loop(){
   // LTE
   if(modem.loop(5000)){ // state was updated
 
+
+    modem.log_status();
+
     for(uint8_t i=0; i<MAX_MQTT_CONNECTIONS; i++){
+      Serial.printf("contextID: %d \n",mqtt[i].contextID);
       if(mqtt[i].contextID == 0)
         continue;
-
       if(modem.has_context(mqtt[i].contextID)){
-        if(!modem.MQTT_connected(mqtt[i].clientID)){
-          if(modem.MQTT_connect(mqtt[i].clientID,mqtt[i].nick.c_str(),mqtt[i].user.c_str(),mqtt[i].pwd.c_str(),mqtt[i].host.c_str(),mqtt[i].port)){
+        Serial.printf("clientID: %d \n",i);
+        if(!modem.MQTT_connected(i)){
+          Serial.printf("host: %s \n",mqtt[i].host.c_str());
+          if(modem.MQTT_connect(i,mqtt[i].nick.c_str(),mqtt[i].user.c_str(),mqtt[i].pwd.c_str(),mqtt[i].host.c_str(),mqtt[i].port)){
             if(mqttOnConnect != NULL)
               mqttOnConnect();
             for(uint8_t j=0; j<10; j++){
               if(mqtt[i].subscribe_topics[j] == "")
                 continue;
               String topic = mqtt[i].prefix + mqtt[i].subscribe_topics[j];
-              modem.MQTT_subscribeTopic(mqtt[i].clientID,++mqtt[i].msg_id,topic,2);
+              modem.MQTT_subscribeTopic(i,++mqtt[i].msg_id,topic,2);
             }
           }
         }
       }else{
         modem.open_pdp_context(mqtt[i].contextID);
+        return; // open a context at a time
       }
     }
 
@@ -144,7 +150,6 @@ void MODEMfreeRTOS::loop(){
         modem.open_pdp_context(tx_http_request[i].contextID);
     }
 
-    modem.log_status();
   }
 
   if(update_clock){
@@ -227,8 +232,9 @@ void MODEMfreeRTOS::update_clock_sys(){
 * @pwd - credential password
 */
 void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd){
-  if(clientID > MAX_MQTT_CONNECTIONS)
+  if(clientID >= MAX_MQTT_CONNECTIONS)
     return;
+  mqtt[clientID].contextID = contextID;
   mqtt[clientID].contextID = contextID;
   mqtt[clientID].nick = uid;
   mqtt[clientID].prefix = project+"/"+uid;
@@ -821,7 +827,8 @@ bool MODEMfreeRTOS::http_queue_body_has_space(){
 * @payload - data to be written on topic
 */
 void MODEMfreeRTOS::mqtt_set_will_topic(uint8_t clientID, String topic, String payload){
-
+  if(clientID >= MAX_MQTT_CONNECTIONS)
+    return;
   mqtt[clientID].will_topic = topic;
   mqtt[clientID].will_payload = payload;
 }
@@ -835,6 +842,8 @@ void MODEMfreeRTOS::mqtt_set_will_topic(uint8_t clientID, String topic, String p
 * @topic - without prefix
 */
 void MODEMfreeRTOS::mqtt_add_subscribe_topic(uint8_t clientID, uint8_t index, String topic){
+  if(clientID >= MAX_MQTT_CONNECTIONS)
+    return;
 
   if(index >= 10)
     return;

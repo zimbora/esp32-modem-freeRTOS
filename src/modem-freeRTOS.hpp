@@ -70,7 +70,6 @@ struct MQTT_SETUP
   String user;
   String pwd;
   uint8_t msg_id;
-  uint8_t clientID; // client id 0-5 (limited to MAX_MQTT_CONNECTIONS)
   String will_topic;
   String will_payload;
   String subscribe_topics[10];
