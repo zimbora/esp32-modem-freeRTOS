@@ -15,14 +15,15 @@ This library implements an independent process to manage LTE and WiFi interfaces
 - Manage TCP connection
 - Read messages from Queue and sends to modem
 - Get messages from modem and write on respective Queue
+- !! WiFi not supported yet
 
 ## Implementation
-Establish connection to APN
-Create contexts
-Receives configurations for TCP
-Receives configurations for MQTT
-Create and keep persistent connections TCP/MQTT
-Read and write on respective Queues
+- Establish connection to APN
+- Create contexts
+- Receives configurations for TCP
+- Receives configurations for MQTT
+- Create and keep persistent connections TCP/MQTT
+- Read and write on respective Queues
 
 ## Public Methods
 
@@ -36,6 +37,11 @@ Read and write on respective Queues
 [TCP_MSG* tcp_getNextMessage(TCP_MSG *pxRxedMessage)](#TCP-getNextMessage)
 [bool tcp_pushMessage(uint8_t clientID, const char* data, uint16_t len)](#TCP-pushMessage)
 
+### HTTP
+[bool http_pushMessage(uint8_t contextID, uint8_t clientID, String host, String path, String method)](#HTTTP-pushMessage)
+[HTTP_HEADER_MSG* http_header_getNextMessage(HTTP_HEADER_MSG *pxRxedMessage)](#HTTTP-header-getNextMessage)
+[HTTP_BODY_MSG* http_body_getNextMessage(HTTP_BODY_MSG *pxRxedMessage)](#HTTTP-body-getNextMessage)
+
 ### MQTT
 [void mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd)](#MQTT-configure-connection)
 [void mqtt_set_will_topic(uint8_t clientID, String topic, String payload)](#MQTT-set-will-topic)
@@ -47,8 +53,14 @@ Read and write on respective Queues
 ## Examples
   Run programs inside examples folder to check how it works
 
-### demo
-  Establish connection to one mqtt broker, subscribes topics, receives and publish messages
+### demo-tcp
+  Establishes connection to a server, do a request and reads its response
+
+### demo-http
+  Establishes connection to one mqtt broker, subscribes topics, receives and publish messages
+
+### demo-http
+
 
 ## Unit Test with Arduino
   Not available for now
@@ -111,6 +123,39 @@ TCP_MSG* tcp_getNextMessage(TCP_MSG *pxRxedMessage)
 * @retain true|false
 ```
 bool tcp_pushMessage(uint8_t clientID, const char* data, uint16_t len)
+```
+
+### HTTP
+
+#### HTTTP pushMessage
+* use it to do http requests
+*
+* @contextID 1-11, context id
+* @clientID 0-5, tcp index client
+* @host
+* @port
+* @path
+* @method
+```
+bool http_pushMessage(uint8_t contextID, uint8_t clientID, String host, String path, String method)
+```
+
+#### HTTTP header getNextMessage
+* use it to get http header messages.
+*
+* returns a pointer to HTTP_HEADER_MSG struct containing the received message
+* if no message is available it returns NULL
+```
+HTTP_HEADER_MSG* http_header_getNextMessage(HTTP_HEADER_MSG *pxRxedMessage)
+```
+
+#### HTTTP body getNextMessage
+* use it to get http body messages.
+*
+* returns a pointer to HTTP_BODY_MSG struct containing the received message
+* if no message is available it returns NULL
+```
+HTTP_BODY_MSG* http_body_getNextMessage(HTTP_BODY_MSG *pxRxedMessage)
 ```
 
 ### MQTT

@@ -15,8 +15,6 @@
 
 // MQTT
 #define MQTT_PROJECT "esp32/freeRTOS"
-
-
 String mqtt_subscribe_topics[] = {
   "/fw/#",
   "/sysfile/#",

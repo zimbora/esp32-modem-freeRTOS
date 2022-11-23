@@ -147,6 +147,11 @@ void MODEMfreeRTOS::loop(){
     modem.log_status();
   }
 
+  if(update_clock){
+    modem.update_sys_clock();
+    update_clock = false;
+  }
+
   // tcp
   tcp_sendMessage();
   tcp_checkMessages();
@@ -158,6 +163,19 @@ void MODEMfreeRTOS::loop(){
   http_execute_requests();
 
   delay(100);
+}
+
+/*
+* sets contextID to use ssl
+* call it before set_context
+*
+* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
+*/
+bool MODEMfreeRTOS::set_ssl(uint8_t contextID){
+  if(contextID == 0 || contextID > MAX_CONNECTIONS)
+    return false;
+
+  return modem.set_ssl(contextID);
 }
 
 /*
@@ -173,6 +191,28 @@ bool MODEMfreeRTOS::set_context(uint8_t contextID, String apn, String user, Stri
     return false;
 
   return modem.setup(contextID,apn,user,pwd);
+}
+
+int16_t MODEMfreeRTOS::get_rssi(){
+  return modem.rssi();
+}
+
+String MODEMfreeRTOS::get_technology(){
+  return modem.technology();
+}
+
+/*
+* return timezone difference in seconds
+*/
+uint32_t MODEMfreeRTOS::get_tz(){
+  return modem.get_tz();
+}
+
+/*
+* set flag to update sys clock asap
+*/
+void MODEMfreeRTOS::update_clock_sys(){
+  update_clock = true;
 }
 
 /*
@@ -436,7 +476,6 @@ HTTP_BODY_MSG* MODEMfreeRTOS::http_body_getNextMessage(HTTP_BODY_MSG *pxRxedMess
 * @contextID 1-11, context id
 * @clientID 0-5, tcp index client
 * @host
-* @port
 * @path
 * @method
 */
@@ -460,11 +499,65 @@ bool MODEMfreeRTOS::http_pushMessage(uint8_t contextID, uint8_t clientID, String
 
      pxMessage = &tx_http_request[uxQueueMessagesWaiting(httpTxQueue)];
 
+     pxMessage->protocol = "HTTP";
      pxMessage->contextID = contextID;
      pxMessage->clientID = clientID;
      pxMessage->host = host;
      pxMessage->path = path;
      pxMessage->method = method;
+
+     bool res = xQueueSendToBack( httpTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
+     xSemaphoreGive(httpTxQueueMutex);
+     return res;
+  }
+
+  return false;
+
+}
+
+/*
+* use it to do http requests
+*
+* @contextID 1-11, context id
+* @clientID 0-5, tcp index client
+* @sslClientID 0-5, ssl index client
+* @host
+* @path
+* @method - GET|POST
+* @token - to be added to header ex: "x-session=asd"
+* @body
+* @json - true|false (body data format)
+*/
+bool MODEMfreeRTOS::https_pushMessage(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String method, String token, String body, bool json)  {
+
+  if(clientID >= MAX_TCP_CONNECTIONS)
+    return false;
+  /*
+  if(qos == 0 && !tcp_connected())
+    return false;
+  */
+  struct HTTP_REQUEST *pxMessage;
+
+  if( httpTxQueue != 0 && uxQueueSpacesAvailable(httpTxQueue) > 0){
+     // Send a pointer to a struct AMessage object.  Don't block if the
+     // queue is already full.
+     if(!xSemaphoreTake( httpTxQueueMutex, 2000)){
+       xSemaphoreGive(httpTxQueueMutex);
+       return false;
+     }
+
+     pxMessage = &tx_http_request[uxQueueMessagesWaiting(httpTxQueue)];
+
+     pxMessage->protocol = "HTTPS";
+     pxMessage->contextID = contextID;
+     pxMessage->clientID = clientID;
+     pxMessage->sslClientID = sslClientID;
+     pxMessage->host = host;
+     pxMessage->path = path;
+     pxMessage->method = method;
+     pxMessage->token = token;
+     pxMessage->body = body;
+     pxMessage->json = json;
 
      bool res = xQueueSendToBack( httpTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
      xSemaphoreGive(httpTxQueueMutex);
@@ -498,6 +591,7 @@ void MODEMfreeRTOS::http_execute_requests(){
       // by vATask, but the item still remains on the queue.
       uint8_t clientID = pxMessage->clientID;
       uint8_t contextID = pxMessage->contextID;
+      uint8_t sslClientID = pxMessage->sslClientID;
       if(clientID >= MAX_TCP_CONNECTIONS){
         Serial.println("invalid tcp clientID");
         return;
@@ -505,12 +599,22 @@ void MODEMfreeRTOS::http_execute_requests(){
 
       if(!modem.has_context(contextID)){
         xSemaphoreGive(httpTxQueueMutex);
-        http_pushMessage(contextID,clientID,pxMessage->host,pxMessage->path,pxMessage->method);
+        if(pxMessage->protocol == "HTTP")
+          http_pushMessage(contextID,clientID,pxMessage->host,pxMessage->path,pxMessage->method);
+        else if(pxMessage->protocol == "HTTPS")
+          https_pushMessage(contextID,clientID,sslClientID,pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->token,pxMessage->body,pxMessage->json);
+        else
+          Serial.println("TCP protocol not supported");
         return;
       }else{
         //log("[tcp] >> "+topic + " : " + data);
         xSemaphoreGive(httpTxQueueMutex);
-        http_get_request(contextID,clientID,pxMessage->host,pxMessage->path);
+        if(pxMessage->protocol == "HTTP")
+          http_get_request(contextID,clientID,pxMessage->host,pxMessage->path);
+        else if(pxMessage->protocol == "HTTPS")
+          https_request(contextID,clientID,sslClientID,pxMessage->host,pxMessage->path,pxMessage->token,pxMessage->body,pxMessage->method,pxMessage->json);
+        else
+          Serial.println("TCP protocol not supported");
         return;
       }
     }
@@ -525,7 +629,7 @@ void MODEMfreeRTOS::http_execute_requests(){
 bool MODEMfreeRTOS::http_get_request(uint8_t contextID, uint8_t clientID, String host, String path){
 
 
-  if(!modem.http_do_request(host,path,clientID,contextID)){
+  if(!modem.http_get(host,path,"",clientID,contextID)){
     Serial.printf("http request to: %s%s has failed..\n",host.c_str(),path.c_str());
     return false;
   }
@@ -576,6 +680,75 @@ bool MODEMfreeRTOS::http_get_request(uint8_t contextID, uint8_t clientID, String
 
 }
 
+bool MODEMfreeRTOS::https_request(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String token, String body, String method, bool json){
+
+  Serial.println("method: "+method);
+
+  if(method == "GET"){
+    if(!modem.https_get(host,path,token,clientID,sslClientID,contextID)){
+      Serial.printf("http request to: %s%s has failed..\n",host.c_str(),path.c_str());
+      return false;
+    }
+  }else if(method == "POST"){
+    if(json){
+      if(!modem.https_post_json(host,path,body,token,clientID,sslClientID,contextID)){
+        Serial.printf("https json post to: %s%s has failed..\n",host.c_str(),path.c_str());
+        return false;
+      }
+    }else{
+      if(!modem.https_post(host,path,body,token,clientID,sslClientID,contextID)){
+        Serial.printf("https post to: %s%s has failed..\n",host.c_str(),path.c_str());
+        return false;
+      }
+    }
+  }
+
+  if(!modem.http_wait_response(clientID)){
+    Serial.println("http request: no response received");
+    return false;
+  }
+
+  if(modem.http_response_status().indexOf("200") > -1){
+    Serial.println("http request: OK");
+    uint16_t len = modem.http_get_body_size();
+    Serial.printf("http body size: %d \n",len);
+
+    http_enqueue_header_msg(clientID, len, modem.http_md5().c_str(), modem.http_response_status());
+
+    uint16_t len_read = 0, total_len_read = 0;
+    char* data = (char*)malloc(CONNECTION_BUFFER);
+    if(data != nullptr){
+      memset(data,0,CONNECTION_BUFFER);
+      while(true){
+
+        // if queue has space
+        if(http_queue_body_has_space()){
+          len_read = modem.http_get_body(clientID,data,CONNECTION_BUFFER);
+
+          if(len_read > 0){
+            Serial.printf("send %d bytes to queue \n",len_read);
+            http_enqueue_body_msg(clientID,data,len_read);
+            memset(data,0,len_read);
+            total_len_read += len_read;
+            if(len == total_len_read)
+              break;
+          }
+        }
+        delay(100);
+      }
+      /*
+      for(uint16_t i = 0; i<len_read; i++)
+        Serial.print((char)data[i]);
+      */
+
+      free(data);
+    }
+  }else{
+    Serial.println("response: "+modem.http_response_status());
+    http_enqueue_header_msg(clientID, 0, modem.http_md5().c_str(), modem.http_response_status());
+  }
+
+}
 
 bool MODEMfreeRTOS::http_enqueue_header_msg(uint8_t clientID, uint16_t body_len, const char* md5, String http_response){
 
@@ -709,6 +882,7 @@ MQTT_MSG* MODEMfreeRTOS::mqtt_getNextMessage(MQTT_MSG *pxRxedMessage){
 
 /*
 * use it to send mqtt messages
+* If qos == 0 and mqtt is disconnected messages will be discarded
 *
 * @clientID 0-5, mqtt index client
 * @topic - topic without prefix, must start with '/', topic is added thereafter
@@ -786,7 +960,8 @@ void MODEMfreeRTOS::mqtt_sendMessage(){
       }
 
       if(!modem.MQTT_connected(clientID)){
-        mqtt_pushMessage(clientID,topic,data,qos,retain);
+        if(qos != 0)
+          mqtt_pushMessage(clientID,topic,data,qos,retain);
         return;
       }else{
         //log("[mqtt] >> "+topic + " : " + data);

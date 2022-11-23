@@ -1,9 +1,10 @@
 
-#ifndef MQTT_H
-#define MQTT_H
+#ifndef MODEM_FREERTOS_H
+#define MODEM_FREERTOS_H
 
 #include "Arduino.h"
-#include "modem-bgxx.hpp"
+
+#include "esp32-BG95.hpp"
 
 struct HTTP_HEADER_MSG
 {
@@ -22,11 +23,16 @@ struct HTTP_BODY_MSG
 
 struct HTTP_REQUEST
 {
+  String protocol; // HTTP|HTTPS
   String host;
   String path;
   String method;
+  String token;
+  String body;
+  bool json;
   uint8_t contextID;
   uint8_t clientID;
+  uint8_t sslClientID;
 };
 
 struct TCP_MSG
@@ -77,6 +83,7 @@ class MODEMfreeRTOS{
     void init(uint16_t cops, uint8_t mode, uint8_t pwkey);
     void loop();
     bool set_context(uint8_t contextID, String apn, String user, String pwd);
+    bool set_ssl(uint8_t contextID);
 
     void tcp_configure_connection(uint8_t clientID, uint8_t contextID, String host, uint16_t port);
     void tcp_setup(void(*callback1)(uint8_t clientID),void(*callback2)(uint8_t clientID));
@@ -84,6 +91,7 @@ class MODEMfreeRTOS{
     bool tcp_pushMessage(uint8_t clientID, const char* data, uint16_t len);
 
     bool http_pushMessage(uint8_t contextID, uint8_t clientID, String host, String path, String method);
+    bool https_pushMessage(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String method, String token, String body, bool json);
 		HTTP_HEADER_MSG* http_header_getNextMessage(HTTP_HEADER_MSG *pxRxedMessage);
 		HTTP_BODY_MSG* http_body_getNextMessage(HTTP_BODY_MSG *pxRxedMessage);
 
@@ -94,12 +102,19 @@ class MODEMfreeRTOS{
     bool mqtt_pushMessage(uint8_t clientID, const String& topic, const String& message, uint8_t qos, uint8_t retain);
     MQTT_MSG* mqtt_getNextMessage(MQTT_MSG *pxRxedMessage);
 
+    int16_t get_rssi();
+    String get_technology();
+    uint32_t get_tz();
+    void update_clock_sys();
     //bool mqtt_parse_msg(uint8_t clientID, String topic, String payload);
     /*
     int8_t mqtt_get_subscriptions_size();
     */
 
   private:
+
+    bool update_clock = false;
+
     void mqtt_sendMessage();
 
     void tcp_sendMessage();
@@ -111,6 +126,7 @@ class MODEMfreeRTOS{
 		bool http_queue_body_has_space();
     void http_execute_requests();
 		bool http_get_request(uint8_t clientID, uint8_t contextID, String host, String path);
+    bool https_request(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String token, String body, String method, bool json);
     /*
     bool mqtt_wifi_connect_configured();
     bool mqtt_wifi_connect_default();
