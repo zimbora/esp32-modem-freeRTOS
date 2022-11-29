@@ -26,10 +26,10 @@ MODEMfreeRTOS mRTOS;
 
 MQTT_MSG* msg;
 
-void (*callback)();
-void mqttOnConnect(){
+void (*callback)(uint8_t clientID);
+void mqttOnConnect(uint8_t clientID){
   Serial.println("mqtt is connected - sending first message");
-  mRTOS.mqtt_pushMessage(CLIENTID,"/status","online",2,true);
+  mRTOS.mqtt_pushMessage(clientID,"/status","online",2,true);
   return;
 }
 

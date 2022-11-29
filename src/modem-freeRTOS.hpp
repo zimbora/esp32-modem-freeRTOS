@@ -97,10 +97,12 @@ class MODEMfreeRTOS{
     void mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd);
     void mqtt_set_will_topic(uint8_t clientID, String topic, String payload);
     void mqtt_add_subscribe_topic(uint8_t clientID, uint8_t index, String topic);
-    void mqtt_setup(void(*callback)());
+    void mqtt_setup(void(*callback)(uint8_t clientID));
+    bool mqtt_isConnected(uint8_t clientID);
     bool mqtt_pushMessage(uint8_t clientID, const String& topic, const String& message, uint8_t qos, uint8_t retain);
     MQTT_MSG* mqtt_getNextMessage(MQTT_MSG *pxRxedMessage);
 
+    void log_modem_status();
     int16_t get_rssi();
     String get_technology();
     uint32_t get_tz();

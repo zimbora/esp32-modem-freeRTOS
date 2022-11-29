@@ -57,9 +57,14 @@ This library implements an independent process to manage LTE and WiFi interfaces
   Establishes connection to a server, do a request and reads its response
 
 ### demo-http
-  Establishes connection to one mqtt broker, subscribes topics, receives and publish messages
+  Two processes running simultaneously:
+    - One process is controlling the modem and executing requests
+    - The other one is used to send and received requests to and from the first process
 
-### demo-http
+### demo-mqtt
+  Two processes running simultaneously:
+    - One process is controlling the modem, handling mqtt connection and executing requests
+    - The other one is used to send and received requests to and from the first process
 
 
 ## Unit Test with Arduino

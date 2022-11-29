@@ -41,7 +41,7 @@ MQTT_SETUP mqtt[MAX_MQTT_CONNECTIONS];
 MODEMBGXX modem;
 
 void (*tcpOnConnect)(uint8_t clientID);
-void (*mqttOnConnect)();
+void (*mqttOnConnect)(uint8_t clientID);
 bool (*mqtt_callback)(uint8_t,String,String);
 bool mqtt_parse_msg(uint8_t clientID, String topic, String payload){
   mqtt_enqueue_msg(clientID,topic,payload);
@@ -98,20 +98,14 @@ void MODEMfreeRTOS::loop(){
   // LTE
   if(modem.loop(5000)){ // state was updated
 
-
-    modem.log_status();
-
     for(uint8_t i=0; i<MAX_MQTT_CONNECTIONS; i++){
-      Serial.printf("contextID: %d \n",mqtt[i].contextID);
       if(mqtt[i].contextID == 0)
         continue;
       if(modem.has_context(mqtt[i].contextID)){
-        Serial.printf("clientID: %d \n",i);
         if(!modem.MQTT_connected(i)){
-          Serial.printf("host: %s \n",mqtt[i].host.c_str());
           if(modem.MQTT_connect(i,mqtt[i].nick.c_str(),mqtt[i].user.c_str(),mqtt[i].pwd.c_str(),mqtt[i].host.c_str(),mqtt[i].port)){
             if(mqttOnConnect != NULL)
-              mqttOnConnect();
+              mqttOnConnect(i);
             for(uint8_t j=0; j<10; j++){
               if(mqtt[i].subscribe_topics[j] == "")
                 continue;
@@ -196,6 +190,10 @@ bool MODEMfreeRTOS::set_context(uint8_t contextID, String apn, String user, Stri
     return false;
 
   return modem.setup(contextID,apn,user,pwd);
+}
+
+void MODEMfreeRTOS::log_modem_status(){
+  modem.log_status();
 }
 
 int16_t MODEMfreeRTOS::get_rssi(){
@@ -854,7 +852,7 @@ void MODEMfreeRTOS::mqtt_add_subscribe_topic(uint8_t clientID, uint8_t index, St
 /*
 * Init mqtt and configures callback to be called when connection is established
 */
-void MODEMfreeRTOS::mqtt_setup(void(*callback)()){
+void MODEMfreeRTOS::mqtt_setup(void(*callback)(uint8_t)){
 
   mqttOnConnect = callback;
   mqtt_callback = &mqtt_parse_msg;
@@ -866,6 +864,12 @@ void MODEMfreeRTOS::mqtt_setup(void(*callback)()){
   }
 }
 
+/*
+* check if mqtt client is connected
+*/
+bool MODEMfreeRTOS::mqtt_isConnected(uint8_t clientID){
+  return modem.MQTT_connected(clientID);
+}
 
 /*
 * use it to get received messages.
@@ -926,6 +930,7 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
      memcpy(pxMessage->data,message.c_str(),message.length());
      pxMessage->qos = qos;
      pxMessage->retain = retain;
+     pxMessage->clientID = clientID;
 
      bool res = xQueueSendToBack( mqttTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
      xSemaphoreGive(mqttTxQueueMutex);
