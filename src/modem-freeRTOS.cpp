@@ -11,7 +11,6 @@
 #define HTTP_RX_QUEUE_SIZE 1 // !! do not change it
 #define HTTP_TX_QUEUE_SIZE 1 // !! do not change it
 
-
 // TCP
 QueueHandle_t tcpRxQueue;
 QueueHandle_t tcpTxQueue;
@@ -37,8 +36,30 @@ MQTT_MSG tx_mqtt_msg[MQTT_TX_QUEUE_SIZE];
 SemaphoreHandle_t mqttTxQueueMutex;
 MQTT_SETUP mqtt[MAX_MQTT_CONNECTIONS];
 
-
+#ifdef ENABLE_LTE
 MODEMBGXX modem;
+#else
+#include <WiFi.h>
+
+EspMQTTClient mqtt1(
+  "",
+  1883,
+  "",
+  "",
+  ""
+);
+EspMQTTClient mqtt2(
+  "",
+  1883,
+  "",
+  "",
+  ""
+);
+
+#endif
+
+uint32_t timeout_loop = 0;
+bool wifi_connected = false;
 
 void (*tcpOnConnect)(uint8_t clientID);
 void (*mqttOnConnect)(uint8_t clientID);
@@ -49,7 +70,49 @@ bool mqtt_parse_msg(uint8_t clientID, String topic, String payload){
 }
 
 /*
-* init hw interface and class
+* init class for WiFi
+*/
+void MODEMfreeRTOS::init(const char* ssid, const char* password){
+
+  mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG * ) );
+  mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG * ) );
+
+  tcpRxQueue = xQueueCreate( TCP_RX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
+  tcpTxQueue = xQueueCreate( TCP_TX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
+
+  httpTxQueue = xQueueCreate( HTTP_RX_QUEUE_SIZE, sizeof( struct HTTP_MSG * ) );
+  httpHeaderRxQueue = xQueueCreate( HTTP_RX_QUEUE_SIZE, sizeof( struct HTTP_HEADER_MSG * ) );
+  httpBodyRxQueue = xQueueCreate( HTTP_TX_QUEUE_SIZE, sizeof( struct HTTP_BODY_MSG * ) );
+
+  mqttTxQueueMutex = xSemaphoreCreateMutex();
+  tcpTxQueueMutex = xSemaphoreCreateMutex();
+  httpTxQueueMutex = xSemaphoreCreateMutex();
+
+  for(uint8_t i = 0; i<MAX_MQTT_CONNECTIONS; i++){
+    mqtt[i].contextID = 0;
+    mqtt[i].active = false;
+    mqtt[i].msg_id = 0;
+  }
+
+  for(uint8_t i = 0; i<MAX_TCP_CONNECTIONS; i++){
+    tcp[i].contextID = 0;
+    tcp[i].active = false;
+  }
+
+  #ifndef ENABLE_LTE
+  #ifdef DEBUG_MQTT_MSG
+  mqtt1.enableDebuggingMessages();
+  mqtt2.enableDebuggingMessages();
+  #endif
+  WiFi.disconnect(true);
+  WiFi.onEvent(WiFiEvent);
+  WiFi.begin(ssid, password);
+  #endif
+
+}
+
+/*
+* init hw interface and class for LTE
 *
 * @cops - operator selection, if 0 let modem search automatically
 * @mode - radio technology GSM:1/GPRS:2/NB:3/CATM1:4/AUTO:5 (auto for any available technology)
@@ -67,7 +130,6 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
   httpHeaderRxQueue = xQueueCreate( HTTP_RX_QUEUE_SIZE, sizeof( struct HTTP_HEADER_MSG * ) );
   httpBodyRxQueue = xQueueCreate( HTTP_TX_QUEUE_SIZE, sizeof( struct HTTP_BODY_MSG * ) );
 
-
   mqttTxQueueMutex = xSemaphoreCreateMutex();
   tcpTxQueueMutex = xSemaphoreCreateMutex();
   httpTxQueueMutex = xSemaphoreCreateMutex();
@@ -82,9 +144,10 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
     tcp[i].active = false;
   }
 
+  #ifdef ENABLE_LTE
   modem.init_port(115200,SERIAL_8N1);
   modem.init(mode,cops,pwkey);
-
+  #endif
   // init contexts
 }
 
@@ -94,8 +157,40 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
 */
 void MODEMfreeRTOS::loop(){
 
+  // WIFI
+  #ifndef ENABLE_LTE
+  if(mqtt1.getMqttServerIp() != "")
+    mqtt1.loop();
+  if(mqtt2.getMqttServerIp() != "")
+    mqtt2.loop();
+  #endif
+  // tcp
 
-  // LTE
+  if(timeout_loop < millis()){
+
+    timeout_loop = millis()+100;
+
+    //LTE
+    #ifdef ENABLE_LTE
+    lte_loop();
+    #endif
+    // TCP
+    tcp_sendMessage();
+    tcp_checkMessages();
+
+    // mqtt
+    mqtt_sendMessage();
+
+    // http
+    http_execute_requests();
+
+  }
+
+
+}
+
+#ifdef ENABLE_LTE
+void MODEMfreeRTOS::lte_loop(){
   if(modem.loop(5000)){ // state was updated
 
     for(uint8_t i=0; i<MAX_MQTT_CONNECTIONS; i++){
@@ -151,17 +246,22 @@ void MODEMfreeRTOS::loop(){
     update_clock = false;
   }
 
-  // tcp
-  tcp_sendMessage();
-  tcp_checkMessages();
+}
+#endif
 
-  // mqtt
-  mqtt_sendMessage();
+// Don't use it for now. It will force mqtt lib to handle wifi
+void MODEMfreeRTOS::wifi_configure_ap(const char* wifi_ssid, const char* wifi_pwd){
+  /*
+  #ifndef ENABLE_LTE
+  Serial.printf("ssid: %s \n",wifi_ssid);
+  Serial.printf("wifi_pwd: %s \n",wifi_pwd);
+  mqtt1.setWifiCredentials(wifi_ssid,wifi_pwd);
+  #endif
+  */
+}
 
-  // http
-  http_execute_requests();
-
-  delay(100);
+bool MODEMfreeRTOS::isWifiConnected(){
+  return wifi_connected;
 }
 
 /*
@@ -174,7 +274,11 @@ bool MODEMfreeRTOS::set_ssl(uint8_t contextID){
   if(contextID == 0 || contextID > MAX_CONNECTIONS)
     return false;
 
+  #ifdef ENABLE_LTE
   return modem.set_ssl(contextID);
+  #else
+  return false;
+  #endif
 }
 
 /*
@@ -189,26 +293,52 @@ bool MODEMfreeRTOS::set_context(uint8_t contextID, String apn, String user, Stri
   if(contextID == 0 || contextID > MAX_CONNECTIONS)
     return false;
 
+  #ifdef ENABLE_LTE
   return modem.setup(contextID,apn,user,pwd);
+  #else
+  return false;
+  #endif
 }
 
 void MODEMfreeRTOS::log_modem_status(){
+  #ifdef ENABLE_LTE
   modem.log_status();
+  #endif
 }
 
 int16_t MODEMfreeRTOS::get_rssi(){
+  #ifdef ENABLE_LTE
   return modem.rssi();
+  #else
+  return -1;
+  #endif
 }
 
 String MODEMfreeRTOS::get_technology(){
+  #ifdef ENABLE_LTE
   return modem.technology();
+  #else
+  return "WiFi";
+  #endif
+}
+
+bool MODEMfreeRTOS::isLTERegistered(){
+  #ifdef ENABLE_LTE
+  return modem.get_actual_mode() != 0;
+  #else
+  return false;
+  #endif
 }
 
 /*
 * return timezone difference in seconds
 */
 uint32_t MODEMfreeRTOS::get_tz(){
+  #ifdef ENABLE_LTE
   return modem.get_tz();
+  #endif
+
+  return 0;
 }
 
 /*
@@ -233,13 +363,46 @@ void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, uint8_t contextI
   if(clientID >= MAX_MQTT_CONNECTIONS)
     return;
   mqtt[clientID].contextID = contextID;
-  mqtt[clientID].contextID = contextID;
+  mqtt[clientID].active = true;
   mqtt[clientID].nick = uid;
   mqtt[clientID].prefix = project+"/"+uid;
   mqtt[clientID].host = host;
   mqtt[clientID].port = port;
   mqtt[clientID].user = user;
   mqtt[clientID].pwd = pwd;
+}
+
+/*
+* call it before mqtt_setup
+* changes mqtt connection parameters - use it with wifi
+*
+* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
+* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
+* @project - string to create prefix of topic - :project/:uid/...
+* @host - IP or DNS of server
+* @user - credential username
+* @pwd - credential password
+*/
+void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, const char* project, const char* uid, const char* host, uint16_t port, const char* user, const char* pwd){
+  if(clientID >= MAX_MQTT_CONNECTIONS)
+    return;
+
+  mqtt[clientID].active = true;
+  mqtt[clientID].nick = String(uid);
+  mqtt[clientID].prefix = String(project)+"/"+String(uid);
+  mqtt[clientID].host = String(host);
+  mqtt[clientID].port = port;
+  mqtt[clientID].user = String(user);
+  mqtt[clientID].pwd = String(pwd);
+
+  #ifndef ENABLE_LTE
+
+  if(clientID == 0)
+    mqtt1.setMqttServer(host,user,pwd,port);
+  else if(clientID == 1)
+    mqtt2.setMqttServer(host,user,pwd,port);
+
+  #endif
 }
 
 // --- TCP ---
@@ -268,7 +431,10 @@ void MODEMfreeRTOS::tcp_configure_connection(uint8_t clientID, uint8_t contextID
 void MODEMfreeRTOS::tcp_setup(void(*callback1)(uint8_t clientID),void(*callback2)(uint8_t clientID)){
 
   tcpOnConnect = callback1;
+  #ifdef ENABLE_LTE
   modem.tcp_set_callback_on_close(callback2);
+  #else
+  #endif
 }
 
 /*
@@ -277,8 +443,9 @@ void MODEMfreeRTOS::tcp_setup(void(*callback1)(uint8_t clientID),void(*callback2
 * if a long response is being received
 * Data is then sent to queue. Use tcp_getNextMessage to read data
 */
-bool MODEMfreeRTOS::tcp_checkMessages(){
+void MODEMfreeRTOS::tcp_checkMessages(){
 
+  #ifdef ENABLE_LTE
   for(uint8_t i=0; i<MAX_TCP_CONNECTIONS; i++){
     uint16_t len = modem.tcp_has_data(i);
     if(len > 0){
@@ -295,6 +462,8 @@ bool MODEMfreeRTOS::tcp_checkMessages(){
       }
     }
   }
+  #endif
+
 }
 
 /*
@@ -319,7 +488,7 @@ void MODEMfreeRTOS::tcp_enqueue_msg(uint8_t clientID, const char* data, uint16_t
      xQueueGenericSend( tcpRxQueue, ( void * ) &pxMessage, ( TickType_t ) 0, queueSEND_TO_BACK );
   }else{
     #ifdef WARNING_TCP_GW
-    log("tcp rx no space available");
+    Serial.println("tcp rx no space available");
     #endif
   }
 }
@@ -416,13 +585,18 @@ void MODEMfreeRTOS::tcp_sendMessage(){
         return;
       }
 
+      #ifdef ENABLE_LTE
       if(!modem.tcp_connected(clientID)){
         tcp_pushMessage(clientID,pxMessage->data,pxMessage->data_len);
         return;
       }else{
-        //log("[tcp] >> "+topic + " : " + data);
+        //Serial.println("[tcp] >> "+topic + " : " + data);
         modem.tcp_send(clientID,pxMessage->data,pxMessage->data_len);
       }
+      #else
+      tcp_pushMessage(clientID,pxMessage->data,pxMessage->data_len); // for now
+      return;
+      #endif
     }
 
   }
@@ -475,15 +649,17 @@ HTTP_BODY_MSG* MODEMfreeRTOS::http_body_getNextMessage(HTTP_BODY_MSG *pxRxedMess
 }
 
 /*
-* use it to do http requests
+* use it to do http requests - LTE
 *
 * @contextID 1-11, context id
 * @clientID 0-5, tcp index client
 * @host
 * @path
 * @method
+* @header_key - use it to add a parameter to header (key)
+* @header_value - use it to add a parameter to header (value)
 */
-bool MODEMfreeRTOS::http_pushMessage(uint8_t contextID, uint8_t clientID, String host, String path, String method)  {
+bool MODEMfreeRTOS::http_pushMessage(uint8_t contextID, uint8_t clientID, String host, String path, String method, String header_key, String header_value, String body, bool json){
 
   if(clientID >= MAX_TCP_CONNECTIONS)
     return false;
@@ -509,6 +685,10 @@ bool MODEMfreeRTOS::http_pushMessage(uint8_t contextID, uint8_t clientID, String
      pxMessage->host = host;
      pxMessage->path = path;
      pxMessage->method = method;
+     pxMessage->header_key = header_key;
+     pxMessage->header_value = header_value;
+     pxMessage->body = body;
+     pxMessage->json = json;
 
      bool res = xQueueSendToBack( httpTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
      xSemaphoreGive(httpTxQueueMutex);
@@ -520,7 +700,52 @@ bool MODEMfreeRTOS::http_pushMessage(uint8_t contextID, uint8_t clientID, String
 }
 
 /*
-* use it to do http requests
+* use it to do http requests - WIFI
+*
+* @host
+* @path
+* @method
+* @header_key - use it to add a parameter to header (key)
+* @header_value - use it to add a parameter to header (value)
+*/
+bool MODEMfreeRTOS::http_pushMessage(String host, String path, String method, String header_key, String header_value, String body, bool json){
+
+  /*
+  if(qos == 0 && !tcp_connected())
+    return false;
+  */
+  struct HTTP_REQUEST *pxMessage;
+
+  if( httpTxQueue != 0 && uxQueueSpacesAvailable(httpTxQueue) > 0){
+     // Send a pointer to a struct AMessage object.  Don't block if the
+     // queue is already full.
+     if(!xSemaphoreTake( httpTxQueueMutex, 2000)){
+       xSemaphoreGive(httpTxQueueMutex);
+       return false;
+     }
+
+     pxMessage = &tx_http_request[uxQueueMessagesWaiting(httpTxQueue)];
+
+     pxMessage->protocol = "HTTP";
+     pxMessage->host = host;
+     pxMessage->path = path;
+     pxMessage->method = method;
+     pxMessage->header_key = header_key;
+     pxMessage->header_value = header_value;
+     pxMessage->body = body;
+     pxMessage->json = json;
+
+     bool res = xQueueSendToBack( httpTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
+     xSemaphoreGive(httpTxQueueMutex);
+     return res;
+  }
+
+  return false;
+
+}
+
+/*
+* use it to do http requests - LTE
 *
 * @contextID 1-11, context id
 * @clientID 0-5, tcp index client
@@ -528,11 +753,12 @@ bool MODEMfreeRTOS::http_pushMessage(uint8_t contextID, uint8_t clientID, String
 * @host
 * @path
 * @method - GET|POST
-* @token - to be added to header ex: "x-session=asd"
+* @header_key - to be added to header ex: "token"
+* @header_value - to be added to header ex: "asd"
 * @body
 * @json - true|false (body data format)
 */
-bool MODEMfreeRTOS::https_pushMessage(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String method, String token, String body, bool json)  {
+bool MODEMfreeRTOS::https_pushMessage(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String method, String header_key, String header_value, String body, bool json)  {
 
   if(clientID >= MAX_TCP_CONNECTIONS)
     return false;
@@ -559,7 +785,8 @@ bool MODEMfreeRTOS::https_pushMessage(uint8_t contextID, uint8_t clientID, uint8
      pxMessage->host = host;
      pxMessage->path = path;
      pxMessage->method = method;
-     pxMessage->token = token;
+     pxMessage->header_key = header_key;
+     pxMessage->header_value = header_value;
      pxMessage->body = body;
      pxMessage->json = json;
 
@@ -571,6 +798,50 @@ bool MODEMfreeRTOS::https_pushMessage(uint8_t contextID, uint8_t clientID, uint8
   return false;
 
 }
+
+/*
+* use it to do http requests - WIFI
+*
+* @host
+* @path
+* @method - GET|POST
+* @header_key - to be added to header ex: "token"
+* @header_value - to be added to header ex: "asd"
+* @body
+* @json - true|false (body data format)
+*/
+bool MODEMfreeRTOS::https_pushMessage(String host, String path, String method, String header_key, String header_value, String body, bool json)  {
+
+  struct HTTP_REQUEST *pxMessage;
+
+  if( httpTxQueue != 0 && uxQueueSpacesAvailable(httpTxQueue) > 0){
+     // Send a pointer to a struct AMessage object.  Don't block if the
+     // queue is already full.
+     if(!xSemaphoreTake( httpTxQueueMutex, 2000)){
+       xSemaphoreGive(httpTxQueueMutex);
+       return false;
+     }
+
+     pxMessage = &tx_http_request[uxQueueMessagesWaiting(httpTxQueue)];
+
+     pxMessage->protocol = "HTTPS";
+     pxMessage->host = host;
+     pxMessage->path = path;
+     pxMessage->method = method;
+     pxMessage->header_key = header_key;
+     pxMessage->header_value = header_value;
+     pxMessage->body = body;
+     pxMessage->json = json;
+
+     bool res = xQueueSendToBack( httpTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
+     xSemaphoreGive(httpTxQueueMutex);
+     return res;
+  }
+
+  return false;
+
+}
+
 
 /*
 * private method
@@ -598,32 +869,57 @@ void MODEMfreeRTOS::http_execute_requests(){
       uint8_t sslClientID = pxMessage->sslClientID;
       if(clientID >= MAX_TCP_CONNECTIONS){
         Serial.println("invalid tcp clientID");
+        xSemaphoreGive(httpTxQueueMutex);
         return;
       }
 
+      xSemaphoreGive(httpTxQueueMutex);
+
+      #ifdef ENABLE_LTE
       if(!modem.has_context(contextID)){
-        xSemaphoreGive(httpTxQueueMutex);
         if(pxMessage->protocol == "HTTP")
-          http_pushMessage(contextID,clientID,pxMessage->host,pxMessage->path,pxMessage->method);
-        else if(pxMessage->protocol == "HTTPS")
-          https_pushMessage(contextID,clientID,sslClientID,pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->token,pxMessage->body,pxMessage->json);
-        else
-          Serial.println("TCP protocol not supported");
+          http_pushMessage(contextID,clientID,pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->header_key,pxMessage->header_value,pxMessage->body,pxMessage->json);
+        else if(pxMessage->protocol == "HTTPS"){
+          https_pushMessage(contextID,clientID,sslClientID,pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->header_key,pxMessage->header_value,pxMessage->body,pxMessage->json);
+        }else
+          Serial.println("http protocol not known");
         return;
       }else{
-        //log("[tcp] >> "+topic + " : " + data);
-        xSemaphoreGive(httpTxQueueMutex);
         if(pxMessage->protocol == "HTTP")
           http_get_request(contextID,clientID,pxMessage->host,pxMessage->path);
-        else if(pxMessage->protocol == "HTTPS")
-          https_request(contextID,clientID,sslClientID,pxMessage->host,pxMessage->path,pxMessage->token,pxMessage->body,pxMessage->method,pxMessage->json);
-        else
-          Serial.println("TCP protocol not supported");
+        else if(pxMessage->protocol == "HTTPS"){
+          String token = "";
+          if(pxMessage->header_key != "")
+            token = pxMessage->header_key + ":" + pxMessage->header_value;
+          https_request(contextID,clientID,sslClientID,pxMessage->host,pxMessage->path,token,pxMessage->body,pxMessage->method,pxMessage->json);
+        }else
+          Serial.println("http protocol not known");
         return;
       }
+      #else
+        if(!isWifiConnected()){
+          if(pxMessage->protocol == "HTTP")
+            http_pushMessage(pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->header_key,pxMessage->header_value,pxMessage->body,pxMessage->json);
+          else if(pxMessage->protocol == "HTTPS")
+            https_pushMessage(pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->header_key,pxMessage->header_value,pxMessage->body,pxMessage->json);
+          else
+            Serial.println("http protocol not known");
+          return;
+        }else{
+          if(pxMessage->protocol == "HTTP")
+            wifi_http_request(pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->header_key,pxMessage->header_value,pxMessage->body,pxMessage->json);
+          else if(pxMessage->protocol == "HTTPS")
+            wifi_https_request(pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->header_key,pxMessage->header_value,pxMessage->body,pxMessage->json);
+          else
+            Serial.println("http protocol not known");
+          return;
+        }
+
+      #endif
     }
 
   }
+
   xSemaphoreGive(httpTxQueueMutex);
 }
 
@@ -632,21 +928,26 @@ void MODEMfreeRTOS::http_execute_requests(){
 */
 bool MODEMfreeRTOS::http_get_request(uint8_t contextID, uint8_t clientID, String host, String path){
 
-
+  #ifdef ENABLE_LTE
   if(!modem.http_get(host,path,"",clientID,contextID)){
+    #ifdef DEBUG_HTTP_ERROR
     Serial.printf("http request to: %s%s has failed..\n",host.c_str(),path.c_str());
+    #endif
     return false;
   }
   if(!modem.http_wait_response(clientID)){
+    #ifdef DEBUG_HTTP_ERROR
     Serial.println("http request: no response received");
+    #endif
     return false;
   }
 
   if(modem.http_response_status().indexOf("200") > -1){
-    Serial.println("http request: OK");
     uint16_t len = modem.http_get_body_size();
+    #ifdef DEBUG_HTTP
+    Serial.println("http request: OK");
     Serial.printf("http body size: %d \n",len);
-
+    #endif
     http_enqueue_header_msg(clientID, len, modem.http_md5().c_str(), modem.http_response_status());
 
     uint16_t len_read = 0, total_len_read = 0;
@@ -660,12 +961,18 @@ bool MODEMfreeRTOS::http_get_request(uint8_t contextID, uint8_t clientID, String
           len_read = modem.http_get_body(clientID,data,CONNECTION_BUFFER);
 
           if(len_read > 0){
+            #ifdef DEBUG_HTTP
             Serial.printf("send %d bytes to queue \n",len_read);
+            #endif
             http_enqueue_body_msg(clientID,data,len_read);
             memset(data,0,len_read);
             total_len_read += len_read;
-            if(len == total_len_read)
+            if(len == total_len_read){
+              #ifdef DEBUG_HTTP
+              Serial.println("all data was read");
+              #endif
               break;
+            }
           }
         }
         delay(100);
@@ -678,45 +985,63 @@ bool MODEMfreeRTOS::http_get_request(uint8_t contextID, uint8_t clientID, String
       free(data);
     }
   }else{
+    #ifdef DEBUG_HTTP_ERROR
     Serial.println("response: "+modem.http_response_status());
+    #endif
     http_enqueue_header_msg(clientID, 0, modem.http_md5().c_str(), modem.http_response_status());
   }
+  #else
+  Serial.println("WiFi - implement http get request");
+  #endif
 
 }
 
 bool MODEMfreeRTOS::https_request(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String token, String body, String method, bool json){
 
+  #ifdef ENABLE_LTE
+
+  #ifdef DEBUG_HTTP
   Serial.println("method: "+method);
+  #endif
 
   if(method == "GET"){
     if(!modem.https_get(host,path,token,clientID,sslClientID,contextID)){
+      #ifdef DEBUG_HTTP_ERROR
       Serial.printf("http request to: %s%s has failed..\n",host.c_str(),path.c_str());
+      #endif
       return false;
     }
   }else if(method == "POST"){
     if(json){
       if(!modem.https_post_json(host,path,body,token,clientID,sslClientID,contextID)){
+        #ifdef DEBUG_HTTP_ERROR
         Serial.printf("https json post to: %s%s has failed..\n",host.c_str(),path.c_str());
+        #endif
         return false;
       }
     }else{
       if(!modem.https_post(host,path,body,token,clientID,sslClientID,contextID)){
+        #ifdef DEBUG_HTTP_ERROR
         Serial.printf("https post to: %s%s has failed..\n",host.c_str(),path.c_str());
+        #endif
         return false;
       }
     }
   }
 
   if(!modem.http_wait_response(clientID)){
+    #ifdef DEBUG_HTTP_ERROR
     Serial.println("http request: no response received");
+    #endif
     return false;
   }
 
   if(modem.http_response_status().indexOf("200") > -1){
-    Serial.println("http request: OK");
     uint16_t len = modem.http_get_body_size();
+    #ifdef DEBUG_HTTP
+    Serial.println("http request: OK");
     Serial.printf("http body size: %d \n",len);
-
+    #endif
     http_enqueue_header_msg(clientID, len, modem.http_md5().c_str(), modem.http_response_status());
 
     uint16_t len_read = 0, total_len_read = 0;
@@ -730,7 +1055,9 @@ bool MODEMfreeRTOS::https_request(uint8_t contextID, uint8_t clientID, uint8_t s
           len_read = modem.http_get_body(clientID,data,CONNECTION_BUFFER);
 
           if(len_read > 0){
+            #ifdef DEBUG_HTTP
             Serial.printf("send %d bytes to queue \n",len_read);
+            #endif
             http_enqueue_body_msg(clientID,data,len_read);
             memset(data,0,len_read);
             total_len_read += len_read;
@@ -748,17 +1075,240 @@ bool MODEMfreeRTOS::https_request(uint8_t contextID, uint8_t clientID, uint8_t s
       free(data);
     }
   }else{
+    #ifdef DEBUG_HTTP_ERROR
     Serial.println("response: "+modem.http_response_status());
+    #endif
     http_enqueue_header_msg(clientID, 0, modem.http_md5().c_str(), modem.http_response_status());
   }
 
+  #endif
 }
+
+#ifndef ENABLE_LTE
+bool MODEMfreeRTOS::wifi_http_request(String host, String path, String method, String header_token, String header_value, String body, bool json){
+
+  WiFiClient *client = new WiFiClient;
+  HTTPClient http;
+
+  #ifdef DEBUG_HTTP
+  Serial.print("[HTTP] begin...\n");
+  Serial.println("host: "+host);
+  Serial.println("path: "+path);
+  Serial.println("method: "+method);
+  #endif
+
+  http.begin(*client,host,80,path); //HTTP
+
+  const char *keys[3] = {
+    "Content-Length",
+    "Content-Type",
+    "MD5"
+  };
+
+  http.collectHeaders(keys,3);
+  // start connection and send HTTP header
+
+  if(method != "GET" && json)
+    http.addHeader("Content-Type","application/json");
+  else if(method != "GET")
+    http.addHeader("Content-Type","application/x-www-form-urlencoded");
+
+  if(header_token != "")
+    http.addHeader(header_token,header_value);
+
+  int httpCode = 0;
+  if(method == "GET"){
+    #ifdef DEBUG_HTTP
+    Serial.print("[HTTP] GET...\n");
+    #endif
+    httpCode = http.GET();
+  }else if(method == "POST"){
+    #ifdef DEBUG_HTTP
+    Serial.print("[HTTP] POST...\n");
+    #endif
+    httpCode = http.POST(body);
+  }
+
+  // httpCode will be negative on error
+  if(httpCode > 0) {
+    // HTTP header has been send and Server response header has been handleda
+
+    String body_len = http.header("Content-Length");
+    uint16_t len = body_len.toInt();
+    String md5 = http.header("MD5");
+
+    #ifdef DEBUG_HTTP
+    Serial.printf("[HTTP] ... code: %d\n", httpCode);
+    Serial.println("content length: "+body_len);
+    Serial.println("md5: "+md5);
+    Serial.println("content type: "+http.header("Content-Type"));
+    #endif
+
+    // file found at server
+    if(httpCode == HTTP_CODE_OK) {
+
+      http_enqueue_header_msg(0,body_len.toInt(),md5.c_str(),"200");
+
+      uint16_t len_read = 0, total_len_read = 0;
+      char* data = (char*)malloc(CONNECTION_BUFFER);
+      if(data != nullptr){
+        memset(data,0,CONNECTION_BUFFER);
+        while(true){
+
+          // if queue has space
+          if(http_queue_body_has_space()){
+
+            uint16_t i = 0;
+            while(client->available() && i<CONNECTION_BUFFER){
+              data[i++] = (char)client->read();
+            }
+
+            len_read = i;
+            if(len_read > 0){
+              #ifdef DEBUG_HTTP
+              Serial.printf("send %d bytes to queue \n",len_read);
+              #endif
+              http_enqueue_body_msg(0,data,len_read);
+              memset(data,0,len_read);
+              total_len_read += len_read;
+              if(len == total_len_read){
+                break;
+              }
+            }
+          }
+          delay(100);
+        }
+        free(data);
+      }
+
+    }else{
+        #ifdef DEBUG_HTTP_ERROR
+        Serial.printf("[HTTP] $s ... failed, error: %s\n", method.c_str(),http.errorToString(httpCode).c_str());
+        Serial.printf("https request to: %s%s has failed..\n",host.c_str(),path.c_str());
+        #endif
+        http_enqueue_header_msg(0,0,md5.c_str(),http.errorToString(httpCode));
+    }
+  }else Serial.println("Unable to do https request");
+
+  http.end();
+}
+#endif
+
+#ifndef ENABLE_LTE
+bool MODEMfreeRTOS::wifi_https_request(String host, String path, String method, String header_token, String header_value, String body, bool json){
+
+  WiFiClientSecure *client = new WiFiClientSecure;
+  HTTPClient http;
+
+  #ifdef DEBUG_HTTP
+  Serial.print("[HTTP] begin...\n");
+  Serial.println("host: "+host);
+  Serial.println("path: "+path);
+  Serial.println("method: "+method);
+  #endif
+
+  http.begin(*client,host,443,path); //HTTP
+
+  const char *keys[3] = {
+    "Content-Length",
+    "Content-Type",
+    "MD5"
+  };
+
+  http.collectHeaders(keys,3);
+  // start connection and send HTTP header
+
+  if(method != "GET" && json)
+    http.addHeader("Content-Type","application/json");
+  else if(method != "GET")
+    http.addHeader("Content-Type","application/x-www-form-urlencoded");
+
+  if(header_token != "")
+    http.addHeader(header_token,header_value);
+
+  int httpCode = 0;
+  if(method == "GET"){
+    #ifdef DEBUG_HTTP
+    Serial.print("[HTTP] GET...\n");
+    #endif
+    httpCode = http.GET();
+  }else if(method == "POST"){
+    #ifdef DEBUG_HTTP
+    Serial.print("[HTTP] POST...\n");
+    #endif
+    httpCode = http.POST(body);
+  }
+
+  // httpCode will be negative on error
+  if(httpCode > 0) {
+    // HTTP header has been send and Server response header has been handleda
+
+    String body_len = http.header("Content-Length");
+    uint16_t len = body_len.toInt();
+    String md5 = http.header("MD5");
+
+    #ifdef DEBUG_HTTP
+    Serial.printf("[HTTP] ... code: %d\n", httpCode);
+    Serial.println("content length: "+body_len);
+    Serial.println("md5: "+md5);
+    Serial.println("content type: "+http.header("Content-Type"));
+    #endif
+
+    // file found at server
+    if(httpCode == HTTP_CODE_OK) {
+
+      http_enqueue_header_msg(0,body_len.toInt(),md5.c_str(),"200");
+
+      uint16_t len_read = 0, total_len_read = 0;
+      char* data = (char*)malloc(CONNECTION_BUFFER);
+      if(data != nullptr){
+        memset(data,0,CONNECTION_BUFFER);
+        while(true){
+
+          // if queue has space
+          if(http_queue_body_has_space()){
+
+            uint16_t i = 0;
+            while(client->available() && i<CONNECTION_BUFFER){
+              data[i++] = (char)client->read();
+            }
+
+            len_read = i;
+            if(len_read > 0){
+              #ifdef DEBUG_HTTP
+              Serial.printf("send %d bytes to queue \n",len_read);
+              #endif
+              http_enqueue_body_msg(0,data,len_read);
+              memset(data,0,len_read);
+              total_len_read += len_read;
+              if(len == total_len_read){
+                break;
+              }
+            }
+          }
+          delay(100);
+        }
+        free(data);
+      }
+
+    }else{
+        #ifdef DEBUG_HTTP_ERROR
+        Serial.printf("[HTTP] $s ... failed, error: %s\n", method.c_str(),http.errorToString(httpCode).c_str());
+        Serial.printf("https request to: %s%s has failed..\n",host.c_str(),path.c_str());
+        #endif
+        http_enqueue_header_msg(0,0,md5.c_str(),http.errorToString(httpCode));
+    }
+  }else Serial.println("Unable to do https request");
+
+  http.end();
+}
+#endif
 
 bool MODEMfreeRTOS::http_enqueue_header_msg(uint8_t clientID, uint16_t body_len, const char* md5, String http_response){
 
-  //#ifdef DEBUG_tcp_GW
+  #ifdef DEBUG_HTTP
   Serial.println("[http header] << ["+String(clientID)+"] size:" + String(body_len));
-  //#endif
+  #endif
   struct HTTP_HEADER_MSG *pxMessage;
 
   if( httpHeaderRxQueue != 0 && uxQueueSpacesAvailable(httpHeaderRxQueue) > 0){
@@ -771,9 +1321,12 @@ bool MODEMfreeRTOS::http_enqueue_header_msg(uint8_t clientID, uint16_t body_len,
      memcpy(pxMessage->md5,md5,16);
      pxMessage->http_response = http_response;
      xQueueGenericSend( httpHeaderRxQueue, ( void * ) &pxMessage, ( TickType_t ) 0, queueSEND_TO_BACK );
+     #ifdef DEBUG_HTTP
+     Serial.println("header msg added to queue");
+     #endif
   }else{
     #ifdef WARNING_HTTP_GW
-    log("tcp rx no space available");
+    Serial.println("http rx no space available");
     #endif
     return false;
   }
@@ -782,9 +1335,9 @@ bool MODEMfreeRTOS::http_enqueue_header_msg(uint8_t clientID, uint16_t body_len,
 
 bool MODEMfreeRTOS::http_enqueue_body_msg(uint8_t clientID, char* data, uint16_t data_len){
 
-  //#ifdef DEBUG_tcp_GW
+  #ifdef DEBUG_HTTP
   Serial.println("[http body] << ["+String(clientID)+"] size:" + String(data_len));
-  //#endif
+  #endif
   struct HTTP_BODY_MSG *pxMessage;
 
   if( httpBodyRxQueue != 0 && uxQueueSpacesAvailable(httpBodyRxQueue) > 0){
@@ -798,9 +1351,9 @@ bool MODEMfreeRTOS::http_enqueue_body_msg(uint8_t clientID, char* data, uint16_t
      memcpy(pxMessage->data,data,data_len);
      xQueueGenericSend( httpBodyRxQueue, ( void * ) &pxMessage, ( TickType_t ) 0, queueSEND_TO_BACK );
   }else{
-    //#ifdef WARNING_HTTP_GW
+    #ifdef WARNING_HTTP_GW
     Serial.println("http rx no space available");
-    //#endif
+    #endif
     return false;
   }
   return true;
@@ -856,11 +1409,57 @@ void MODEMfreeRTOS::mqtt_setup(void(*callback)(uint8_t)){
 
   mqttOnConnect = callback;
   mqtt_callback = &mqtt_parse_msg;
+
+  xSemaphoreGive(mqttTxQueueMutex);
+
+  #ifdef ENABLE_LTE
   modem.MQTT_init(mqtt_callback);
 
   for(uint8_t i = 0; i<MAX_MQTT_CONNECTIONS; i++){
     if(mqtt[i].contextID != 0)
       modem.MQTT_setup(i,mqtt[i].contextID,mqtt[i].prefix+mqtt[i].will_topic,mqtt[i].will_payload);
+  }
+  #endif
+}
+
+void MODEMfreeRTOS::mqtt_wifi_setup(void(*callback)()){
+
+  xSemaphoreGive(mqttTxQueueMutex);
+
+  #ifndef ENABLE_LTE
+  mqtt2.setOnConnectionEstablishedCallback(callback);
+  #endif
+}
+
+/*
+* call it to subscribe topics
+*/
+void MODEMfreeRTOS::mqtt_subscribeTopics(uint8_t clientID){
+
+  if(clientID >= MAX_MQTT_CONNECTIONS)
+    return;
+
+  for(uint8_t j=0; j<10; j++){
+    if(mqtt[clientID].subscribe_topics[j] == "")
+      continue;
+    String topic = mqtt[clientID].prefix + mqtt[clientID].subscribe_topics[j];
+    #ifdef ENABLE_LTE
+    modem.MQTT_subscribeTopic(clientID,++mqtt[clientID].msg_id,topic,2);
+    #else
+    if(clientID == 0){
+      mqtt1.subscribe(topic, [](const String & topic, const String & payload) {
+        Serial.println("client 1 msg received");
+        //mqtt_parse_msg(0,topic,payload);
+        mqtt_enqueue_msg(0,topic,payload);
+      });
+    }else if(clientID == 1){
+      mqtt2.subscribe(topic, [](const String & topic, const String & payload) {
+        Serial.println("client 2 msg received");
+        //mqtt_parse_msg(1,topic,payload);
+        mqtt_enqueue_msg(1,topic,payload);
+      });
+    }
+    #endif
   }
 }
 
@@ -868,7 +1467,12 @@ void MODEMfreeRTOS::mqtt_setup(void(*callback)(uint8_t)){
 * check if mqtt client is connected
 */
 bool MODEMfreeRTOS::mqtt_isConnected(uint8_t clientID){
+
+  #ifdef ENABLE_LTE
   return modem.MQTT_connected(clientID);
+  #else
+  return false;
+  #endif
 }
 
 /*
@@ -916,8 +1520,10 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
   if( mqttTxQueue != 0 && uxQueueSpacesAvailable(mqttTxQueue) > 0){
      // Send a pointer to a struct AMessage object.  Don't block if the
      // queue is already full.
+
      if(!xSemaphoreTake( mqttTxQueueMutex, 2000)){
        xSemaphoreGive(mqttTxQueueMutex);
+       Serial.println("Couldn't get mqttTxQueueMutex");
        return false;
      }
 
@@ -950,12 +1556,11 @@ void MODEMfreeRTOS::mqtt_sendMessage(){
 
   struct MQTT_MSG *pxMessage;
 
-  if(!xSemaphoreTake( mqttTxQueueMutex, 2000)){
-    xSemaphoreGive(mqttTxQueueMutex);
+  if(!xSemaphoreTake( mqttTxQueueMutex, 200)){
     return;
   }
 
-  while( mqttTxQueue != 0 && uxQueueMessagesWaiting(mqttTxQueue) > 0){
+  if( mqttTxQueue != 0 && uxQueueMessagesWaiting(mqttTxQueue) > 0){
     // get a message on the created queue.  Block for 10 ticks if a
     // message is not immediately available.
 
@@ -968,19 +1573,47 @@ void MODEMfreeRTOS::mqtt_sendMessage(){
       uint8_t qos = pxMessage->qos;
       uint8_t retain = pxMessage->retain;
       uint8_t clientID = pxMessage->clientID;
+
+      xSemaphoreGive(mqttTxQueueMutex);
+
       if(clientID >= MAX_MQTT_CONNECTIONS){
         Serial.println("invalid mqtt clientID");
         return;
       }
 
-      if(!modem.MQTT_connected(clientID)){
-        if(qos != 0)
-          mqtt_pushMessage(clientID,topic,data,qos,retain);
-        return;
-      }else{
-        //log("[mqtt] >> "+topic + " : " + data);
-        modem.MQTT_publish(clientID,++mqtt[clientID].msg_id,qos,retain,topic,data);
-      }
+      #ifdef ENABLE_LTE
+        if(!modem.MQTT_connected(clientID)){
+          if(qos != 0)
+            mqtt_pushMessage(clientID,topic,data,qos,retain);
+        }else{
+          #ifdef DEBUG_MQTT_MSG
+          Serial.println("[mqtt] >> "+topic + " : " + data);
+          #endif
+          modem.MQTT_publish(clientID,++mqtt[clientID].msg_id,qos,retain,topic,data);
+        }
+      #else
+        if(clientID == 0){
+          if(!mqtt1.isMqttConnected()){
+            if(qos != 0)
+              mqtt_pushMessage(clientID,topic,data,qos,retain);
+          }else{
+            #ifdef DEBUG_MQTT_MSG
+            Serial.println("[mqtt][1] >> "+topic + " : " + data);
+            #endif
+            mqtt1.publish(topic,data,retain);
+          }
+        }if(clientID == 1){
+          if(!mqtt2.isMqttConnected()){
+            if(qos != 0)
+              mqtt_pushMessage(clientID,topic,data,qos,retain);
+          }else{
+            #ifdef DEBUG_MQTT_MSG
+            Serial.println("[mqtt][2] >> "+topic + " : " + data);
+            #endif
+            mqtt2.publish(topic,data,retain);
+          }
+        }
+      #endif
     }
 
   }
@@ -992,9 +1625,9 @@ void MODEMfreeRTOS::mqtt_sendMessage(){
 */
 void mqtt_enqueue_msg(uint8_t clientID, String topic, String payload){
 
-  //#ifdef DEBUG_MQTT_GW
+  #ifdef DEBUG_MQTT_MSG
   Serial.println("[mqtt] << ["+String(clientID)+"] "+topic + " : " + payload);
-  //#endif
+  #endif
   struct MQTT_MSG *pxMessage;
 
   if( mqttRxQueue != 0 && uxQueueSpacesAvailable(mqttRxQueue) > 0){
@@ -1010,7 +1643,98 @@ void mqtt_enqueue_msg(uint8_t clientID, String topic, String payload){
      xQueueGenericSend( mqttRxQueue, ( void * ) &pxMessage, ( TickType_t ) 0, queueSEND_TO_BACK );
   }else{
     #ifdef WARNING_MQTT_GW
-    log("mqtt rx no space available");
+    Serial.println("mqtt rx no space available");
     #endif
   }
 }
+
+#ifndef ENABLE_LTE
+void MODEMfreeRTOS::WiFiEvent(WiFiEvent_t event){
+
+  switch (event) {
+    case SYSTEM_EVENT_WIFI_READY:
+        #ifdef DEBUG_WIFI
+        Serial.println("WiFi interface ready");
+        #endif
+        break;
+    case SYSTEM_EVENT_SCAN_DONE:
+        #ifdef DEBUG_WIFI
+        Serial.println("Completed scan for access points");
+        #endif
+        break;
+    case SYSTEM_EVENT_STA_START:
+        #ifdef DEBUG_WIFI
+        Serial.println("WiFi client started");
+        #endif
+        break;
+    case SYSTEM_EVENT_STA_STOP:
+        #ifdef DEBUG_WIFI
+        Serial.println("WiFi clients stopped");
+        #endif
+        break;
+    case SYSTEM_EVENT_STA_CONNECTED:
+        #ifdef DEBUG_WIFI
+        Serial.println("Connected to access point");
+        #endif
+        break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+        #ifdef DEBUG_WIFI
+        Serial.println("Disconnected from WiFi access point");
+        #endif
+        wifi_connected = false;
+        break;
+    case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
+        #ifdef DEBUG_WIFI
+        Serial.println("Authentication mode of access point has changed");
+        #endif
+        break;
+    case SYSTEM_EVENT_STA_GOT_IP:
+        Serial.print("Obtained IP address: ");
+            #ifdef DEBUG_WIFI
+        Serial.println(WiFi.localIP());
+        #endif
+        wifi_connected = true;
+        break;
+    case SYSTEM_EVENT_STA_LOST_IP:
+        #ifdef DEBUG_WIFI
+        Serial.println("Lost IP address and IP address is reset to 0");
+        #endif
+        break;
+    case SYSTEM_EVENT_AP_START:
+        #ifdef DEBUG_WIFI
+        Serial.println("WiFi access point started");
+        #endif
+        break;
+    case SYSTEM_EVENT_AP_STOP:
+        #ifdef DEBUG_WIFI
+        Serial.println("WiFi access point  stopped");
+        #endif
+        break;
+    case SYSTEM_EVENT_AP_STACONNECTED:
+        #ifdef DEBUG_WIFI
+        Serial.println("Client connected");
+        #endif
+        break;
+    case SYSTEM_EVENT_AP_STADISCONNECTED:
+        #ifdef DEBUG_WIFI
+        Serial.println("Client disconnected");
+        #endif
+        break;
+    case SYSTEM_EVENT_AP_STAIPASSIGNED:
+        #ifdef DEBUG_WIFI
+        Serial.println("Assigned IP address to client");
+        #endif
+        break;
+    case SYSTEM_EVENT_AP_PROBEREQRECVED:
+        #ifdef DEBUG_WIFI
+        Serial.println("Received probe request");
+        #endif
+        break;
+    case SYSTEM_EVENT_GOT_IP6:
+        #ifdef DEBUG_WIFI
+        Serial.println("IPv6 is preferred");
+        #endif
+        break;
+  }
+}
+#endif

@@ -3,6 +3,13 @@
 #include "credentials.h"
 #include "modem-freeRTOS.hpp"
 
+/*
+* !! WiFi not supported yet
+* Edit editable_macros file in src path to change between WiFi and LTE
+* This example makes an http request and prints it's response using tcp calls
+* Configurations relative to WiFi/LTE and hosts must be defined in an external file "credentials.h"
+*/
+
 // HARDWARE
 #define PWKEY 4
 
