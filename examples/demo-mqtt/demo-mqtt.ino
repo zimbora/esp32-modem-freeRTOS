@@ -49,12 +49,6 @@ void onConnectionEstablished(){
   mRTOS.mqtt_pushMessage(0,"/status","online",2,true);
 
   mRTOS.mqtt_subscribeTopics(0);
-  // Subscribe to "mytopic/test" and display received message to Serial
-  /*
-  client1.subscribe("mytopic/test", [](const String & payload) {
-    Serial.println(payload);
-  });
-  */
 }
 
 void onConnectionEstablished2(){
@@ -62,12 +56,6 @@ void onConnectionEstablished2(){
   mRTOS.mqtt_pushMessage(1,"/status","online",2,true);
 
   mRTOS.mqtt_subscribeTopics(1);
-  // Subscribe to "mytopic/test" and display received message to Serial
-  /*
-  client1.subscribe("mytopic/test", [](const String & payload) {
-    Serial.println(payload);
-  });
-  */
 }
 
 #ifdef ENABLE_LTE

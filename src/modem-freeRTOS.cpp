@@ -2,7 +2,7 @@
 
 #include "modem-freeRTOS.hpp"
 
-#define MQTT_RX_QUEUE_SIZE 10
+#define MQTT_RX_QUEUE_SIZE 5
 #define MQTT_TX_QUEUE_SIZE 10
 
 #define TCP_RX_QUEUE_SIZE 2
@@ -10,6 +10,10 @@
 
 #define HTTP_RX_QUEUE_SIZE 1 // !! do not change it
 #define HTTP_TX_QUEUE_SIZE 1 // !! do not change it
+
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 0;
+const int   daylightOffset_sec = 0;
 
 // TCP
 QueueHandle_t tcpRxQueue;
@@ -31,8 +35,8 @@ SemaphoreHandle_t httpTxQueueMutex;
 // MQTT
 QueueHandle_t mqttRxQueue;
 QueueHandle_t mqttTxQueue;
-MQTT_MSG rcv_mqtt_msg[MQTT_RX_QUEUE_SIZE];
-MQTT_MSG tx_mqtt_msg[MQTT_TX_QUEUE_SIZE];
+MQTT_MSG_RX rcv_mqtt_msg[MQTT_RX_QUEUE_SIZE];
+MQTT_MSG_TX tx_mqtt_msg[MQTT_TX_QUEUE_SIZE];
 SemaphoreHandle_t mqttTxQueueMutex;
 MQTT_SETUP mqtt[MAX_MQTT_CONNECTIONS];
 
@@ -58,8 +62,13 @@ EspMQTTClient mqtt2(
 
 #endif
 
+// private vars
 uint32_t timeout_loop = 0;
 bool wifi_connected = false;
+bool update_clock = false;
+String ip = "";
+int16_t rssi = -1;
+String mac_address = "";
 
 void (*tcpOnConnect)(uint8_t clientID);
 void (*mqttOnConnect)(uint8_t clientID);
@@ -74,8 +83,8 @@ bool mqtt_parse_msg(uint8_t clientID, String topic, String payload){
 */
 void MODEMfreeRTOS::init(const char* ssid, const char* password){
 
-  mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG * ) );
-  mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG * ) );
+  mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG_RX * ) );
+  mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG_TX * ) );
 
   tcpRxQueue = xQueueCreate( TCP_RX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
   tcpTxQueue = xQueueCreate( TCP_TX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
@@ -120,8 +129,8 @@ void MODEMfreeRTOS::init(const char* ssid, const char* password){
 */
 void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
 
-  mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG * ) );
-  mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG * ) );
+  mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG_RX * ) );
+  mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG_TX * ) );
 
   tcpRxQueue = xQueueCreate( TCP_RX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
   tcpTxQueue = xQueueCreate( TCP_TX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
@@ -173,7 +182,13 @@ void MODEMfreeRTOS::loop(){
     //LTE
     #ifdef ENABLE_LTE
     lte_loop();
+    #else
+    if(update_clock){
+      sync_clock();
+      update_clock = false;
+    }
     #endif
+
     // TCP
     tcp_sendMessage();
     tcp_checkMessages();
@@ -249,6 +264,32 @@ void MODEMfreeRTOS::lte_loop(){
 }
 #endif
 
+#ifndef ENABLE_LTE
+void MODEMfreeRTOS::sync_clock(){
+
+  Serial.println("NTP config time");
+
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }else{
+    Serial.println(&timeinfo, "NTP %A, %B %d %Y %H:%M:%S");
+
+    int y = timeinfo.tm_year + 1900;
+    int mo = timeinfo.tm_mon + 1;
+    int d = timeinfo.tm_mday;
+    int h = timeinfo.tm_hour;
+    int m = timeinfo.tm_min;
+    int s = timeinfo.tm_sec;
+
+    setTime(h, m, s, d, mo, y);
+  }
+
+}
+#endif
+
 // Don't use it for now. It will force mqtt lib to handle wifi
 void MODEMfreeRTOS::wifi_configure_ap(const char* wifi_ssid, const char* wifi_pwd){
   /*
@@ -310,7 +351,7 @@ int16_t MODEMfreeRTOS::get_rssi(){
   #ifdef ENABLE_LTE
   return modem.rssi();
   #else
-  return -1;
+  return WiFi.RSSI();
   #endif
 }
 
@@ -320,6 +361,10 @@ String MODEMfreeRTOS::get_technology(){
   #else
   return "WiFi";
   #endif
+}
+
+String MODEMfreeRTOS::macAddress() {
+  return mac_address;
 }
 
 bool MODEMfreeRTOS::isLTERegistered(){
@@ -1449,13 +1494,11 @@ void MODEMfreeRTOS::mqtt_subscribeTopics(uint8_t clientID){
     if(clientID == 0){
       mqtt1.subscribe(topic, [](const String & topic, const String & payload) {
         Serial.println("client 1 msg received");
-        //mqtt_parse_msg(0,topic,payload);
         mqtt_enqueue_msg(0,topic,payload);
       });
     }else if(clientID == 1){
       mqtt2.subscribe(topic, [](const String & topic, const String & payload) {
         Serial.println("client 2 msg received");
-        //mqtt_parse_msg(1,topic,payload);
         mqtt_enqueue_msg(1,topic,payload);
       });
     }
@@ -1471,7 +1514,11 @@ bool MODEMfreeRTOS::mqtt_isConnected(uint8_t clientID){
   #ifdef ENABLE_LTE
   return modem.MQTT_connected(clientID);
   #else
-  return false;
+  if(clientID == 0)
+    return mqtt1.isMqttConnected();
+  else if(clientID == 1)
+    return mqtt2.isMqttConnected();
+  else return false;
   #endif
 }
 
@@ -1481,7 +1528,7 @@ bool MODEMfreeRTOS::mqtt_isConnected(uint8_t clientID){
 * returns a pointer to MQTT_MSG struct containing the received message
 * if no message is available it returns NULL
 */
-MQTT_MSG* MODEMfreeRTOS::mqtt_getNextMessage(MQTT_MSG *pxRxedMessage){
+MQTT_MSG_RX* MODEMfreeRTOS::mqtt_getNextMessage(MQTT_MSG_RX *pxRxedMessage){
 
   if( mqttRxQueue != 0 && uxQueueMessagesWaiting(mqttRxQueue) > 0){
      // get a message on the created queue.  Block for 10 ticks if a
@@ -1515,7 +1562,7 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
   if(qos == 0 && !mqtt_connected())
     return false;
   */
-  struct MQTT_MSG *pxMessage;
+  struct MQTT_MSG_TX *pxMessage;
 
   if( mqttTxQueue != 0 && uxQueueSpacesAvailable(mqttTxQueue) > 0){
      // Send a pointer to a struct AMessage object.  Don't block if the
@@ -1528,8 +1575,8 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
      }
 
      pxMessage = &tx_mqtt_msg[uxQueueMessagesWaiting(mqttTxQueue)];
-     memset(pxMessage->topic,0,100);
-     memset(pxMessage->data,0,255);
+     memset(pxMessage->topic,0,sizeof(pxMessage->topic));
+     memset(pxMessage->data,0,sizeof(pxMessage->data));
 
      String topic_ = mqtt[clientID].prefix+topic;
      memcpy(pxMessage->topic,topic_.c_str(),topic_.length());
@@ -1554,7 +1601,7 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
 */
 void MODEMfreeRTOS::mqtt_sendMessage(){
 
-  struct MQTT_MSG *pxMessage;
+  struct MQTT_MSG_TX *pxMessage;
 
   if(!xSemaphoreTake( mqttTxQueueMutex, 200)){
     return;
@@ -1628,14 +1675,14 @@ void mqtt_enqueue_msg(uint8_t clientID, String topic, String payload){
   #ifdef DEBUG_MQTT_MSG
   Serial.println("[mqtt] << ["+String(clientID)+"] "+topic + " : " + payload);
   #endif
-  struct MQTT_MSG *pxMessage;
+  struct MQTT_MSG_RX *pxMessage;
 
   if( mqttRxQueue != 0 && uxQueueSpacesAvailable(mqttRxQueue) > 0){
      // Send a pointer to a struct AMessage object.  Don't block if the
      // queue is already full.
      pxMessage = &rcv_mqtt_msg[uxQueueMessagesWaiting(mqttRxQueue)];
-     memset(pxMessage->topic,0,100);
-     memset(pxMessage->data,0,255);
+     memset(pxMessage->topic,0,sizeof(pxMessage->topic));
+     memset(pxMessage->data,0,sizeof(pxMessage->data));
 
      memcpy(pxMessage->topic,topic.c_str(),topic.length());
      memcpy(pxMessage->data,payload.c_str(),payload.length());
@@ -1655,6 +1702,12 @@ void MODEMfreeRTOS::WiFiEvent(WiFiEvent_t event){
     case SYSTEM_EVENT_WIFI_READY:
         #ifdef DEBUG_WIFI
         Serial.println("WiFi interface ready");
+        String mac = WiFi.macAddress();
+        // drop ':''
+        mac.replace(":", "");
+        // lower letters
+        mac.toLowerCase();
+        mac_address = mac;
         #endif
         break;
     case SYSTEM_EVENT_SCAN_DONE:
@@ -1690,9 +1743,10 @@ void MODEMfreeRTOS::WiFiEvent(WiFiEvent_t event){
         break;
     case SYSTEM_EVENT_STA_GOT_IP:
         Serial.print("Obtained IP address: ");
-            #ifdef DEBUG_WIFI
+        #ifdef DEBUG_WIFI
         Serial.println(WiFi.localIP());
         #endif
+        ip = WiFi.localIP().toString();
         wifi_connected = true;
         break;
     case SYSTEM_EVENT_STA_LOST_IP:

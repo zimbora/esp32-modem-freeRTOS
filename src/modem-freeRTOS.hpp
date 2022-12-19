@@ -11,10 +11,22 @@
   #include "EspMQTTClient.h"
   #include <HTTPClient.h>
   #include <WiFiClientSecure.h>
+  #include <TimeLib.h>
 #endif
 
 #ifndef CONNECTION_BUFFER
 #define CONNECTION_BUFFER 650
+#endif
+
+// MQTT BUFFERS SIZE
+#ifndef MQTT_TOPIC_LEN
+#define MQTT_TOPIC_LEN 75
+#endif
+#ifndef MQTT_TX_PAYLOAD_LEN
+#define MQTT_TX_PAYLOAD_LEN 255
+#endif
+#ifndef MQTT_RX_PAYLOAD_LEN
+#define MQTT_RX_PAYLOAD_LEN 2048
 #endif
 
 struct HTTP_HEADER_MSG {
@@ -59,9 +71,17 @@ struct TCP_SETUP {
 	bool connected;
 };
 
-struct MQTT_MSG {
-  char topic[100];
-  char data[255];
+struct MQTT_MSG_TX {
+  char topic[MQTT_TOPIC_LEN];
+  char data[MQTT_TX_PAYLOAD_LEN];
+  uint8_t qos;
+  uint8_t retain;
+  uint8_t clientID;
+};
+
+struct MQTT_MSG_RX {
+  char topic[MQTT_TOPIC_LEN];
+  char data[MQTT_RX_PAYLOAD_LEN];
   uint8_t qos;
   uint8_t retain;
   uint8_t clientID;
@@ -118,11 +138,12 @@ class MODEMfreeRTOS{
     void mqtt_subscribeTopics(uint8_t clientID);
     bool mqtt_isConnected(uint8_t clientID);
     bool mqtt_pushMessage(uint8_t clientID, const String& topic, const String& message, uint8_t qos, uint8_t retain);
-    MQTT_MSG* mqtt_getNextMessage(MQTT_MSG *pxRxedMessage);
+    MQTT_MSG_RX* mqtt_getNextMessage(MQTT_MSG_RX *pxRxedMessage);
 
     void log_modem_status();
     int16_t get_rssi();
     String get_technology();
+    String macAddress();
     bool isLTERegistered();
     uint32_t get_tz();
     void update_clock_sys();
@@ -133,29 +154,35 @@ class MODEMfreeRTOS{
 
   private:
 
-    bool update_clock = false;
-
     #ifndef ENABLE_LTE
     static void WiFiEvent(WiFiEvent_t event);
     #endif
 
     void lte_loop();
 
-    void tcp_sendMessage();
-    void tcp_checkMessages();
-    void tcp_enqueue_msg(uint8_t clientID, const char* data, uint16_t data_len);
+    void    tcp_sendMessage();
+    void    tcp_checkMessages();
+    void    tcp_enqueue_msg(uint8_t clientID, const char* data, uint16_t data_len);
 
-    bool http_enqueue_header_msg(uint8_t clientID, uint16_t body_len, const char* md5, String http_response);
-    bool http_enqueue_body_msg(uint8_t clientID, char* data, uint16_t data_len);
-		bool http_queue_body_has_space();
-    void http_execute_requests();
-		bool http_get_request(uint8_t clientID, uint8_t contextID, String host, String path);
-    bool https_request(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String token, String body, String method, bool json);
+    bool    http_enqueue_header_msg(uint8_t clientID, uint16_t body_len, const char* md5, String  http_response);
+    bool    http_enqueue_body_msg(uint8_t clientID, char* data, uint16_t data_len);
+		bool    http_queue_body_has_space();
+    void    http_execute_requests();
+		bool    http_get_request(uint8_t clientID, uint8_t contextID, String host, String path);
+    bool    https_request(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String token, String body, String method, bool json);
 
-    bool wifi_http_request(String host, String path, String method, String header_token, String header_value, String body, bool json);
-    bool wifi_https_request(String host, String path, String method, String header_token, String header_value, String body, bool json);
+    bool    wifi_http_request(String host, String path, String method, String header_token, String header_value, String body, bool json);
+    bool    wifi_https_request(String host, String path, String method, String header_token, String header_value, String body, bool json);
 
-    void mqtt_sendMessage();
+    String  wifi_IP();
+    int16_t wifi_rssi();
+    String  wifi_mac_address();
+
+    #ifndef ENABLE_LTE
+    void    sync_clock();
+    #endif
+
+    void    mqtt_sendMessage();
 
     /*
     bool mqtt_wifi_connect_configured();
