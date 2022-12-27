@@ -31,8 +31,8 @@
 
 struct HTTP_HEADER_MSG {
   uint8_t clientID;
-  uint16_t body_len;
-  char md5[16];
+  uint32_t body_len;
+  String md5;
   String http_response;
 };
 
@@ -164,7 +164,7 @@ class MODEMfreeRTOS{
     void    tcp_checkMessages();
     void    tcp_enqueue_msg(uint8_t clientID, const char* data, uint16_t data_len);
 
-    bool    http_enqueue_header_msg(uint8_t clientID, uint16_t body_len, const char* md5, String  http_response);
+    bool    http_enqueue_header_msg(uint8_t clientID, uint32_t body_len, const char* md5, String  http_response);
     bool    http_enqueue_body_msg(uint8_t clientID, char* data, uint16_t data_len);
 		bool    http_queue_body_has_space();
     void    http_execute_requests();

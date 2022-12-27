@@ -344,6 +344,11 @@ bool MODEMfreeRTOS::set_context(uint8_t contextID, String apn, String user, Stri
 void MODEMfreeRTOS::log_modem_status(){
   #ifdef ENABLE_LTE
   modem.log_status();
+  #else
+  Serial.println("wifi connected?: "+String(isWifiConnected()));
+  Serial.println("mqtt client 1 connected?: "+String(mqtt_isConnected(0)));
+  if(mqtt[1].active)
+    Serial.println("mqttc client 2 connected?: "+String(mqtt_isConnected(1)));
   #endif
 }
 
@@ -1147,7 +1152,7 @@ bool MODEMfreeRTOS::wifi_http_request(String host, String path, String method, S
   const char *keys[3] = {
     "Content-Length",
     "Content-Type",
-    "MD5"
+    "Content-MD5"
   };
 
   http.collectHeaders(keys,3);
@@ -1179,13 +1184,13 @@ bool MODEMfreeRTOS::wifi_http_request(String host, String path, String method, S
     // HTTP header has been send and Server response header has been handleda
 
     String body_len = http.header("Content-Length");
-    uint16_t len = body_len.toInt();
-    String md5 = http.header("MD5");
+    uint32_t len = body_len.toInt();
+    String md5 = http.header("Content-MD5");
 
     #ifdef DEBUG_HTTP
     Serial.printf("[HTTP] ... code: %d\n", httpCode);
     Serial.println("content length: "+body_len);
-    Serial.println("md5: "+md5);
+    Serial.println("content md5: "+md5);
     Serial.println("content type: "+http.header("Content-Type"));
     #endif
 
@@ -1257,7 +1262,7 @@ bool MODEMfreeRTOS::wifi_https_request(String host, String path, String method, 
   const char *keys[3] = {
     "Content-Length",
     "Content-Type",
-    "MD5"
+    "Content-MD5"
   };
 
   http.collectHeaders(keys,3);
@@ -1289,8 +1294,8 @@ bool MODEMfreeRTOS::wifi_https_request(String host, String path, String method, 
     // HTTP header has been send and Server response header has been handleda
 
     String body_len = http.header("Content-Length");
-    uint16_t len = body_len.toInt();
-    String md5 = http.header("MD5");
+    uint32_t len = body_len.toInt();
+    String md5 = http.header("Content-MD5");
 
     #ifdef DEBUG_HTTP
     Serial.printf("[HTTP] ... code: %d\n", httpCode);
@@ -1349,7 +1354,7 @@ bool MODEMfreeRTOS::wifi_https_request(String host, String path, String method, 
 }
 #endif
 
-bool MODEMfreeRTOS::http_enqueue_header_msg(uint8_t clientID, uint16_t body_len, const char* md5, String http_response){
+bool MODEMfreeRTOS::http_enqueue_header_msg(uint8_t clientID, uint32_t body_len, const char* md5, String http_response){
 
   #ifdef DEBUG_HTTP
   Serial.println("[http header] << ["+String(clientID)+"] size:" + String(body_len));
@@ -1363,7 +1368,7 @@ bool MODEMfreeRTOS::http_enqueue_header_msg(uint8_t clientID, uint16_t body_len,
 
      pxMessage->clientID = clientID;
      pxMessage->body_len = body_len;
-     memcpy(pxMessage->md5,md5,16);
+     pxMessage->md5 = md5;
      pxMessage->http_response = http_response;
      xQueueGenericSend( httpHeaderRxQueue, ( void * ) &pxMessage, ( TickType_t ) 0, queueSEND_TO_BACK );
      #ifdef DEBUG_HTTP
@@ -1473,6 +1478,13 @@ void MODEMfreeRTOS::mqtt_wifi_setup(void(*callback)()){
 
   #ifndef ENABLE_LTE
   mqtt2.setOnConnectionEstablishedCallback(callback);
+
+  String topic1 = mqtt[0].prefix+mqtt[0].will_topic;
+  String topic2 = mqtt[1].prefix+mqtt[1].will_topic;
+  Serial.println("will 1: "+topic1);
+  Serial.println("will 2: "+topic2);
+  mqtt1.enableLastWillMessage(topic1.c_str(),"offline",true);
+  mqtt2.enableLastWillMessage(topic2.c_str(),"offline",true);
   #endif
 }
 
