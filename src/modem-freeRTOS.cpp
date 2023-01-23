@@ -15,6 +15,9 @@ const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;
 const int   daylightOffset_sec = 0;
 
+String topic1 = "";
+String topic2 = "";
+
 // TCP
 QueueHandle_t tcpRxQueue;
 QueueHandle_t tcpTxQueue;
@@ -45,21 +48,26 @@ MODEMBGXX modem;
 #else
 #include <WiFi.h>
 
+EspMQTTClient mqtt1;
+/*
 EspMQTTClient mqtt1(
   "",
   1883,
   "",
   "",
-  ""
+  "replaceItasSoonAsPosibble"
 );
+*/
+EspMQTTClient mqtt2;
+/*
 EspMQTTClient mqtt2(
   "",
   1883,
   "",
   "",
-  ""
+  "replaceItasSoonAsPosibble"
 );
-
+*/
 #endif
 
 // private vars
@@ -447,11 +455,28 @@ void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, const char* proj
 
   #ifndef ENABLE_LTE
 
-  if(clientID == 0)
-    mqtt1.setMqttServer(host,user,pwd,port);
-  else if(clientID == 1)
-    mqtt2.setMqttServer(host,user,pwd,port);
+  Serial.printf("mqtt uid: %s \n",uid);
+  Serial.println("mqtt nick: "+mqtt[clientID].nick);
+  Serial.println("will topic: "+mqtt[clientID].will_topic);
+  if(clientID == 0){
 
+    topic1 = mqtt[clientID].prefix+mqtt[clientID].will_topic;
+    Serial.println("will 1: "+topic1);
+    mqtt1.enableLastWillMessage(topic1.c_str(),"offline",true);
+
+    mqtt1.setMqttClientName(mqtt[clientID].nick .c_str());
+    mqtt1.setMqttServer(host,user,pwd,port);
+  }else if(clientID == 1){
+
+    topic2 = mqtt[clientID].prefix+mqtt[clientID].will_topic;
+    Serial.println("will 2: "+topic2);
+    mqtt2.enableLastWillMessage(topic2.c_str(),"offline",true);
+
+    mqtt2.setMqttClientName(uid);
+    mqtt2.setMqttServer(host,user,pwd,port);
+  }
+
+  Serial.println(mqtt1.getMqttClientName());
   #endif
 }
 
@@ -1147,7 +1172,14 @@ bool MODEMfreeRTOS::wifi_http_request(String host, String path, String method, S
   Serial.println("method: "+method);
   #endif
 
-  http.begin(*client,host,80,path); //HTTP
+  // only port 80 works
+  uint16_t port = 80;
+  int index = host.indexOf(":");
+  if( index > 0){
+    Serial.printf("Port 80 must be used for http, instead of: %lu \n",port);
+    return false;
+  }
+  http.begin(*client,host,port,path); //HTTP
 
   const char *keys[3] = {
     "Content-Length",
@@ -1238,7 +1270,7 @@ bool MODEMfreeRTOS::wifi_http_request(String host, String path, String method, S
         #endif
         http_enqueue_header_msg(0,0,md5.c_str(),http.errorToString(httpCode));
     }
-  }else Serial.println("Unable to do https request");
+  }else Serial.println("Unable to do http request, http code: "+String(httpCode));
 
   http.end();
 }
@@ -1257,7 +1289,14 @@ bool MODEMfreeRTOS::wifi_https_request(String host, String path, String method, 
   Serial.println("method: "+method);
   #endif
 
-  http.begin(*client,host,443,path); //HTTP
+  // only port 80 works
+  uint16_t port = 443;
+  int index = host.indexOf(":");
+  if( index > 0){
+    Serial.printf("Port 443 must be used for https instead of: %lu \n",port);
+    return false;
+  }
+  http.begin(*client,host,port,path); //HTTP
 
   const char *keys[3] = {
     "Content-Length",
@@ -1477,14 +1516,9 @@ void MODEMfreeRTOS::mqtt_wifi_setup(void(*callback)()){
   xSemaphoreGive(mqttTxQueueMutex);
 
   #ifndef ENABLE_LTE
+
   mqtt2.setOnConnectionEstablishedCallback(callback);
 
-  String topic1 = mqtt[0].prefix+mqtt[0].will_topic;
-  String topic2 = mqtt[1].prefix+mqtt[1].will_topic;
-  Serial.println("will 1: "+topic1);
-  Serial.println("will 2: "+topic2);
-  mqtt1.enableLastWillMessage(topic1.c_str(),"offline",true);
-  mqtt2.enableLastWillMessage(topic2.c_str(),"offline",true);
   #endif
 }
 
