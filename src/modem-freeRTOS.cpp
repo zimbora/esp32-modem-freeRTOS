@@ -77,6 +77,8 @@ bool update_clock = false;
 String ip = "";
 int16_t rssi = -1;
 String mac_address = "";
+uint32_t retry_counter = 1;
+uint32_t connect_retry = 0;
 
 void (*tcpOnConnect)(uint8_t clientID);
 void (*mqttOnConnect)(uint8_t clientID);
@@ -173,6 +175,15 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
 * call it always that is possible
 */
 void MODEMfreeRTOS::loop(){
+
+  #ifndef ENABLE_LTE
+  if(!isWifiConnected()){
+    if(connect_retry < millis() && connect_retry != 0){
+      // device is offline for too long, restart it
+      WiFi.reconnect();
+    }
+  }
+  #endif
 
   // WIFI
   #ifndef ENABLE_LTE
@@ -1781,6 +1792,10 @@ void MODEMfreeRTOS::WiFiEvent(WiFiEvent_t event){
         Serial.println("Disconnected from WiFi access point");
         #endif
         wifi_connected = false;
+        if(retry_counter > 900){
+          retry_counter *= 3;
+        }else retry_counter = 1;
+        connect_retry = retry_counter*60*1000;
         break;
     case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
         #ifdef DEBUG_WIFI
