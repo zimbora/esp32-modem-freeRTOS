@@ -166,6 +166,8 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
   #ifdef ENABLE_LTE
   modem.init_port(115200,SERIAL_8N1);
   modem.init(mode,cops,pwkey);
+  Serial.println("firmware version");
+  Serial.println(get_firmware_version());
   #endif
   // init contexts
 }
@@ -368,6 +370,30 @@ void MODEMfreeRTOS::log_modem_status(){
   Serial.println("mqtt client 1 connected?: "+String(mqtt_isConnected(0)));
   if(mqtt[1].active)
     Serial.println("mqttc client 2 connected?: "+String(mqtt_isConnected(1)));
+  #endif
+}
+
+String MODEMfreeRTOS::get_manufacturer_identification(){
+  #ifdef ENABLE_LTE
+  return modem.get_manufacturer_identification();
+  #else
+  return "";
+  #endif
+}
+
+String MODEMfreeRTOS::get_model_identification(){
+  #ifdef ENABLE_LTE
+  return modem.get_model_identification();
+  #else
+  return "";
+  #endif
+}
+
+String MODEMfreeRTOS::get_firmware_version(){
+  #ifdef ENABLE_LTE
+  return modem.get_firmware_version();
+  #else
+  return "";
   #endif
 }
 
@@ -1550,12 +1576,10 @@ void MODEMfreeRTOS::mqtt_subscribeTopics(uint8_t clientID){
     #else
     if(clientID == 0){
       mqtt1.subscribe(topic, [](const String & topic, const String & payload) {
-        Serial.println("client 1 msg received");
         mqtt_enqueue_msg(0,topic,payload);
       });
     }else if(clientID == 1){
       mqtt2.subscribe(topic, [](const String & topic, const String & payload) {
-        Serial.println("client 2 msg received");
         mqtt_enqueue_msg(1,topic,payload);
       });
     }

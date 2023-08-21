@@ -111,6 +111,10 @@ class MODEMfreeRTOS{
     void init(uint16_t cops, uint8_t mode, uint8_t pwkey);
     void loop();
 
+    String get_manufacturer_identification();
+    String get_model_identification();
+    String get_firmware_version();
+
     void wifi_configure_ap(const char* wifi_ssid, const char* wifi_pwd);
     static bool isWifiConnected();
 
