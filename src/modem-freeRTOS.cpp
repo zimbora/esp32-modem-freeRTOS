@@ -414,6 +414,15 @@ String MODEMfreeRTOS::get_technology(){
 }
 
 String MODEMfreeRTOS::macAddress() {
+  if(mac_address == ""){
+    String mac = WiFi.macAddress();
+    // drop ':''
+    mac.replace(":", "");
+    // lower letters
+    mac.toLowerCase();
+    mac_address = mac;
+  }
+
   return mac_address;
 }
 
@@ -492,7 +501,6 @@ void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, const char* proj
 
   #ifndef ENABLE_LTE
 
-  Serial.printf("mqtt uid: %s \n",uid);
   Serial.println("mqtt nick: "+mqtt[clientID].nick);
   Serial.println("will topic: "+mqtt[clientID].will_topic);
   if(clientID == 0){

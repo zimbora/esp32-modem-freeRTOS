@@ -1,6 +1,6 @@
 
 // uncomment to use WIFI, otherwise it will use BG95 LTE modem
-#define ENABLE_LTE
+//#define ENABLE_LTE
 
 // --- MACROS FOR DEBUG ---
 //#define DEBUG_WIFI

@@ -29,7 +29,7 @@ String mqtt_subscribe_topics[] = {
 
 MODEMfreeRTOS mRTOS;
 
-MQTT_MSG* msg;
+MQTT_MSG_RX* msg;
 
 
 // callback for LTE
@@ -69,7 +69,7 @@ void network_lte_task(void *pvParameters){
   /* The following methods can be called at any time.
   * For changes to have effect mRTOS.mqtt_setup have to be called
   */
-  mRTOS.mqtt_configure_connection(CLIENTID,CONTEXTID,MQTT_PROJECT,MQTT_UID,"83.240.189.154",1883,MQTT_USER_1,MQTT_PASSWORD_1);
+  mRTOS.mqtt_configure_connection(CLIENTID,CONTEXTID,MQTT_PROJECT,MQTT_UID,MQTT_HOST_1,1883,MQTT_USER_1,MQTT_PASSWORD_1);
   mRTOS.mqtt_set_will_topic(CLIENTID,MQTT_WILL_SUBTOPIC,MQTT_WILL_PAYLOAD);
   uint8_t i = 0;
   while(i<NUMITEMS(mqtt_subscribe_topics)){
@@ -123,7 +123,7 @@ void core(void *pvParameters){
       }
       */
     }
-    delay(100); // use delay to moderate concurrency access to queues
+    //delay(100); // use delay to moderate concurrency access to queues
   }
 }
 
@@ -153,22 +153,25 @@ void setup() {
       ,  NULL
       ,  1);
 
-
   #ifndef ENABLE_LTE
-    const char project[] = "esp32/freeRTOS2";
+    const char project[] = "freeRTOS2_test";
     uint16_t port = 1883;
 
     mRTOS.init(WIFI_SSID,WIFI_PASSWORD);
+    String uid = MQTT_UID_PREFIX+mRTOS.macAddress();
+
     //mRTOS.wifi_configure_ap();
     Serial.println("wifi interface configured");
-    mRTOS.mqtt_configure_connection(0,project,MQTT_UID,MQTT_HOST_1,port,MQTT_USER_1,MQTT_PASSWORD_1);
+    mRTOS.mqtt_configure_connection(0,project,uid.c_str(),MQTT_HOST_1,port,MQTT_USER_1,MQTT_PASSWORD_1);
+    mRTOS.mqtt_set_will_topic(CLIENTID,MQTT_WILL_SUBTOPIC,MQTT_WILL_PAYLOAD);
     Serial.println("mqtt client configured");
 
     for(uint8_t i=0;i<NUMITEMS(mqtt_subscribe_topics);i++){
       mRTOS.mqtt_add_subscribe_topic(0,i,mqtt_subscribe_topics[i]);
     }
-
-    mRTOS.mqtt_configure_connection(1,project,MQTT_UID,MQTT_HOST_2,port,MQTT_USER_2,MQTT_PASSWORD_2);
+    /*
+    mRTOS.mqtt_configure_connection(1,project,uid.c_str(),MQTT_HOST_2,port,MQTT_USER_2,MQTT_PASSWORD_2);
+    mRTOS.mqtt_set_will_topic(1,MQTT_WILL_SUBTOPIC,MQTT_WILL_PAYLOAD);
     Serial.println("mqtt client configured");
 
     for(uint8_t i=0;i<NUMITEMS(mqtt_subscribe_topics);i++){
@@ -176,12 +179,24 @@ void setup() {
     }
 
     mRTOS.mqtt_wifi_setup(onConnectionEstablished2);
+    */
   #endif
 }
 
+uint32_t timeout = 0;
 void loop() {
   // put your main code here, to run repeatedly:
   #ifndef ENABLE_LTE
   mRTOS.loop();
   #endif
+
+  if(timeout < millis()){
+    Serial.println("heap free: " + String(ESP.getFreeHeap() / 1024) + " KiB");
+    String topic = "/hello";
+    String payload = String(millis());
+    mRTOS.mqtt_pushMessage(CLIENTID,topic,payload,0,0);
+    timeout = millis()+1000;
+  }
+
+
 }
