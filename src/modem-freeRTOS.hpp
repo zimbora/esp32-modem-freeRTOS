@@ -3,6 +3,7 @@
 #define MODEM_FREERTOS_H
 
 #include "Arduino.h"
+#include "WiFi.h"
 #include "editable_macros.h"
 
 #ifdef ENABLE_LTE

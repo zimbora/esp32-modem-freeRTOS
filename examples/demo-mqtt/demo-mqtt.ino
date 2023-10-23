@@ -23,7 +23,7 @@
 #define MQTT_PROJECT "esp32/freeRTOS2"
 String mqtt_subscribe_topics[] = {
   "/status/#",
-  "/fw/#"
+  "/#"
 };
 
 
