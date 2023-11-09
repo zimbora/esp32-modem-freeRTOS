@@ -32,7 +32,7 @@ QueueHandle_t httpBodyRxQueue;
 QueueHandle_t httpTxQueue;
 HTTP_HEADER_MSG rcv_http_header_msg[HTTP_RX_QUEUE_SIZE];
 HTTP_BODY_MSG rcv_http_body_msg[HTTP_RX_QUEUE_SIZE];
-HTTP_REQUEST tx_http_request[HTTP_TX_QUEUE_SIZE];
+HTTP_REQUEST_ tx_HTTP_REQUEST_[HTTP_TX_QUEUE_SIZE];
 SemaphoreHandle_t httpTxQueueMutex;
 
 // MQTT
@@ -268,11 +268,11 @@ void MODEMfreeRTOS::lte_loop(){
     }
 
     for(uint8_t i=0; i<HTTP_TX_QUEUE_SIZE; i++){
-      if(tx_http_request[i].contextID == 0)
+      if(tx_HTTP_REQUEST_[i].contextID == 0)
         continue;
 
-      if(!modem.has_context(tx_http_request[i].contextID))
-        modem.open_pdp_context(tx_http_request[i].contextID);
+      if(!modem.has_context(tx_HTTP_REQUEST_[i].contextID))
+        modem.open_pdp_context(tx_HTTP_REQUEST_[i].contextID);
     }
 
   }
@@ -787,7 +787,7 @@ bool MODEMfreeRTOS::http_pushMessage(uint8_t contextID, uint8_t clientID, String
   if(qos == 0 && !tcp_connected())
     return false;
   */
-  struct HTTP_REQUEST *pxMessage;
+  struct HTTP_REQUEST_ *pxMessage;
 
   if( httpTxQueue != 0 && uxQueueSpacesAvailable(httpTxQueue) > 0){
      // Send a pointer to a struct AMessage object.  Don't block if the
@@ -797,7 +797,7 @@ bool MODEMfreeRTOS::http_pushMessage(uint8_t contextID, uint8_t clientID, String
        return false;
      }
 
-     pxMessage = &tx_http_request[uxQueueMessagesWaiting(httpTxQueue)];
+     pxMessage = &tx_HTTP_REQUEST_[uxQueueMessagesWaiting(httpTxQueue)];
 
      pxMessage->protocol = "HTTP";
      pxMessage->contextID = contextID;
@@ -834,7 +834,7 @@ bool MODEMfreeRTOS::http_pushMessage(String host, String path, String method, St
   if(qos == 0 && !tcp_connected())
     return false;
   */
-  struct HTTP_REQUEST *pxMessage;
+  struct HTTP_REQUEST_ *pxMessage;
 
   if( httpTxQueue != 0 && uxQueueSpacesAvailable(httpTxQueue) > 0){
      // Send a pointer to a struct AMessage object.  Don't block if the
@@ -844,7 +844,7 @@ bool MODEMfreeRTOS::http_pushMessage(String host, String path, String method, St
        return false;
      }
 
-     pxMessage = &tx_http_request[uxQueueMessagesWaiting(httpTxQueue)];
+     pxMessage = &tx_HTTP_REQUEST_[uxQueueMessagesWaiting(httpTxQueue)];
 
      pxMessage->protocol = "HTTP";
      pxMessage->host = host;
@@ -886,7 +886,7 @@ bool MODEMfreeRTOS::https_pushMessage(uint8_t contextID, uint8_t clientID, uint8
   if(qos == 0 && !tcp_connected())
     return false;
   */
-  struct HTTP_REQUEST *pxMessage;
+  struct HTTP_REQUEST_ *pxMessage;
 
   if( httpTxQueue != 0 && uxQueueSpacesAvailable(httpTxQueue) > 0){
      // Send a pointer to a struct AMessage object.  Don't block if the
@@ -896,7 +896,7 @@ bool MODEMfreeRTOS::https_pushMessage(uint8_t contextID, uint8_t clientID, uint8
        return false;
      }
 
-     pxMessage = &tx_http_request[uxQueueMessagesWaiting(httpTxQueue)];
+     pxMessage = &tx_HTTP_REQUEST_[uxQueueMessagesWaiting(httpTxQueue)];
 
      pxMessage->protocol = "HTTPS";
      pxMessage->contextID = contextID;
@@ -932,7 +932,7 @@ bool MODEMfreeRTOS::https_pushMessage(uint8_t contextID, uint8_t clientID, uint8
 */
 bool MODEMfreeRTOS::https_pushMessage(String host, String path, String method, String header_key, String header_value, String body, bool json)  {
 
-  struct HTTP_REQUEST *pxMessage;
+  struct HTTP_REQUEST_ *pxMessage;
 
   if( httpTxQueue != 0 && uxQueueSpacesAvailable(httpTxQueue) > 0){
      // Send a pointer to a struct AMessage object.  Don't block if the
@@ -942,7 +942,7 @@ bool MODEMfreeRTOS::https_pushMessage(String host, String path, String method, S
        return false;
      }
 
-     pxMessage = &tx_http_request[uxQueueMessagesWaiting(httpTxQueue)];
+     pxMessage = &tx_HTTP_REQUEST_[uxQueueMessagesWaiting(httpTxQueue)];
 
      pxMessage->protocol = "HTTPS";
      pxMessage->host = host;
@@ -970,7 +970,7 @@ bool MODEMfreeRTOS::https_pushMessage(String host, String path, String method, S
 */
 void MODEMfreeRTOS::http_execute_requests(){
 
-  struct HTTP_REQUEST *pxMessage;
+  struct HTTP_REQUEST_ *pxMessage;
 
   if(!xSemaphoreTake( httpTxQueueMutex, 2000)){
     xSemaphoreGive(httpTxQueueMutex);
@@ -1027,7 +1027,7 @@ void MODEMfreeRTOS::http_execute_requests(){
           return;
         }else{
           if(pxMessage->protocol == "HTTP")
-            wifi_http_request(pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->header_key,pxMessage->header_value,pxMessage->body,pxMessage->json);
+            wifi_HTTP_REQUEST_(pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->header_key,pxMessage->header_value,pxMessage->body,pxMessage->json);
           else if(pxMessage->protocol == "HTTPS")
             wifi_https_request(pxMessage->host,pxMessage->path,pxMessage->method,pxMessage->header_key,pxMessage->header_value,pxMessage->body,pxMessage->json);
           else
@@ -1205,7 +1205,7 @@ bool MODEMfreeRTOS::https_request(uint8_t contextID, uint8_t clientID, uint8_t s
 }
 
 #ifndef ENABLE_LTE
-bool MODEMfreeRTOS::wifi_http_request(String host, String path, String method, String header_token, String header_value, String body, bool json){
+bool MODEMfreeRTOS::wifi_HTTP_REQUEST_(String host, String path, String method, String header_token, String header_value, String body, bool json){
 
   WiFiClient *client = new WiFiClient;
   HTTPClient http;

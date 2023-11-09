@@ -43,7 +43,7 @@ struct HTTP_BODY_MSG {
   char data[CONNECTION_BUFFER];
 };
 
-struct HTTP_REQUEST {
+struct HTTP_REQUEST_ {
   String protocol; // HTTP|HTTPS
   String host;
   String path;
@@ -176,7 +176,7 @@ class MODEMfreeRTOS{
 		bool    http_get_request(uint8_t clientID, uint8_t contextID, String host, String path);
     bool    https_request(uint8_t contextID, uint8_t clientID, uint8_t sslClientID, String host, String path, String token, String body, String method, bool json);
 
-    bool    wifi_http_request(String host, String path, String method, String header_token, String header_value, String body, bool json);
+    bool    wifi_HTTP_REQUEST_(String host, String path, String method, String header_token, String header_value, String body, bool json);
     bool    wifi_https_request(String host, String path, String method, String header_token, String header_value, String body, bool json);
 
     String  wifi_IP();
