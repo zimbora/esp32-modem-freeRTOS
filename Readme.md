@@ -1,9 +1,36 @@
 #esp32-modem-freeRTOS
 
-## Usage
+## Dependencies 
+  - Board esp32 by Espressif Systems 3.0.7
+  - modem-freeRTOS.hpp v1.0.2
+  - WiFi.h v1.2.7
+  - EspMQTTClient.h v1.13.3
+  - esp32-BG95 v1.0.5
 
+## Usage
   Edit editable_macros.h file to change macros according to your needs
   Check examples folder to see examples. Each example imports a credentials.h file that is not present on this repository. You have to create it at your own
+
+## Examples
+
+### demo-mqtt
+  Create the "credentials.h" file in demo-mqtt folder
+  Edit the file according to your setup    
+```
+  // WIFI credentials
+  #define WIFI_SSID "ssid"
+  #define WIFI_PASSWORD "password"
+
+  // MQTT credentials
+  #define MQTT_HOST_1 "mqtt host"
+  #define MQTT_PORT_1 1883
+  #define MQTT_USER_1 "device"
+  #define MQTT_PASSWORD_1 "device"
+  #define MQTT_PROJECT "esp32/freeRTOS2"
+  #define MQTT_UID_PREFIX "uid:"
+  #define MQTT_WILL_SUBTOPIC "status"
+  #define MQTT_WILL_PAYLOAD "offline"
+```
 
 ## Important
   All topics start with the prefix
