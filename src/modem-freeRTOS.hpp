@@ -139,7 +139,7 @@ class MODEMfreeRTOS{
     void mqtt_set_will_topic(uint8_t clientID, String topic, String payload);
     void mqtt_add_subscribe_topic(uint8_t clientID, uint8_t index, String topic);
     void mqtt_setup(void(*callback)(uint8_t clientID));
-    void mqtt_wifi_setup(void(*callback)());
+    void mqtt_wifi_setup(uint8_t cliendID, void(*callback)());
     void mqtt_subscribeTopics(uint8_t clientID);
     bool mqtt_isConnected(uint8_t clientID);
     bool mqtt_pushMessage(uint8_t clientID, const String& topic, const String& message, uint8_t qos, uint8_t retain);

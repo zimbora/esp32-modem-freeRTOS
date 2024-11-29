@@ -49,25 +49,8 @@ MODEMBGXX modem;
 #include <WiFi.h>
 
 EspMQTTClient mqtt1;
-/*
-EspMQTTClient mqtt1(
-  "",
-  1883,
-  "",
-  "",
-  "replaceItasSoonAsPosibble"
-);
-*/
 EspMQTTClient mqtt2;
-/*
-EspMQTTClient mqtt2(
-  "",
-  1883,
-  "",
-  "",
-  "replaceItasSoonAsPosibble"
-);
-*/
+
 #endif
 
 // private vars
@@ -450,79 +433,6 @@ uint32_t MODEMfreeRTOS::get_tz(){
 */
 void MODEMfreeRTOS::update_clock_sys(){
   update_clock = true;
-}
-
-/*
-* call it before mqtt_setup
-* changes mqtt connection parameters
-*
-* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
-* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
-* @project - string to create prefix of topic - :project/:uid/...
-* @host - IP or DNS of server
-* @user - credential username
-* @pwd - credential password
-*/
-void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd){
-  if(clientID >= MAX_MQTT_CONNECTIONS)
-    return;
-  mqtt[clientID].contextID = contextID;
-  mqtt[clientID].active = true;
-  mqtt[clientID].nick = uid;
-  mqtt[clientID].prefix = project+"/"+uid;
-  mqtt[clientID].host = host;
-  mqtt[clientID].port = port;
-  mqtt[clientID].user = user;
-  mqtt[clientID].pwd = pwd;
-}
-
-/*
-* call it before mqtt_setup
-* changes mqtt connection parameters - use it with wifi
-*
-* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
-* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
-* @project - string to create prefix of topic - :project/:uid/...
-* @host - IP or DNS of server
-* @user - credential username
-* @pwd - credential password
-*/
-void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, const char* project, const char* uid, const char* host, uint16_t port, const char* user, const char* pwd){
-  if(clientID >= MAX_MQTT_CONNECTIONS)
-    return;
-
-  mqtt[clientID].active = true;
-  mqtt[clientID].nick = String(uid);
-  mqtt[clientID].prefix = String(project)+"/"+String(uid);
-  mqtt[clientID].host = String(host);
-  mqtt[clientID].port = port;
-  mqtt[clientID].user = String(user);
-  mqtt[clientID].pwd = String(pwd);
-
-  #ifndef ENABLE_LTE
-
-  Serial.println("mqtt nick: "+mqtt[clientID].nick);
-  Serial.println("will topic: "+mqtt[clientID].will_topic);
-  if(clientID == 0){
-
-    topic1 = mqtt[clientID].prefix+mqtt[clientID].will_topic;
-    Serial.println("will 1: "+topic1);
-    mqtt1.enableLastWillMessage(topic1.c_str(),"offline",true);
-
-    mqtt1.setMqttClientName(mqtt[clientID].nick .c_str());
-    mqtt1.setMqttServer(host,user,pwd,port);
-  }else if(clientID == 1){
-
-    topic2 = mqtt[clientID].prefix+mqtt[clientID].will_topic;
-    Serial.println("will 2: "+topic2);
-    mqtt2.enableLastWillMessage(topic2.c_str(),"offline",true);
-
-    mqtt2.setMqttClientName(uid);
-    mqtt2.setMqttServer(host,user,pwd,port);
-  }
-
-  Serial.println(mqtt1.getMqttClientName());
-  #endif
 }
 
 // --- TCP ---
@@ -1505,6 +1415,53 @@ bool MODEMfreeRTOS::http_queue_body_has_space(){
 
 /*
 * call it before mqtt_setup
+* changes mqtt connection parameters
+*
+* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
+* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
+* @project - string to create prefix of topic - :project/:uid/...
+* @host - IP or DNS of server
+* @user - credential username
+* @pwd - credential password
+*/
+void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, uint8_t contextID, String project, String uid, String host, uint16_t port, String user, String pwd){
+  if(clientID >= MAX_MQTT_CONNECTIONS)
+    return;
+  mqtt[clientID].contextID = contextID;
+  mqtt[clientID].active = true;
+  mqtt[clientID].nick = uid;
+  mqtt[clientID].prefix = project+"/"+uid;
+  mqtt[clientID].host = host;
+  mqtt[clientID].port = port;
+  mqtt[clientID].user = user;
+  mqtt[clientID].pwd = pwd;
+}
+
+/*
+* call it before mqtt_setup
+* changes mqtt connection parameters - use it with wifi
+*
+* @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
+* @contextID 1-16, limited to MAX_CONNECTIONS defined in bgxx library
+* @project - string to create prefix of topic - :project/:uid/...
+* @host - IP or DNS of server
+* @user - credential username
+* @pwd - credential password
+*/
+void MODEMfreeRTOS::mqtt_configure_connection(uint8_t clientID, const char* project, const char* uid, const char* host, uint16_t port, const char* user, const char* pwd){
+  if(clientID >= MAX_MQTT_CONNECTIONS)
+    return;
+
+  mqtt[clientID].active = true;
+  mqtt[clientID].nick = String(uid);
+  mqtt[clientID].prefix = String(project)+"/"+String(uid);
+  mqtt[clientID].host = String(host);
+  mqtt[clientID].port = port;
+  mqtt[clientID].user = String(user);
+  mqtt[clientID].pwd = String(pwd);
+}
+/*
+* call it before mqtt_setup
 * mqtt set will
 *
 * @clientID 0-5, limited to MAX_MQTT_CONNECTIONS defined in bgxx library
@@ -1546,25 +1503,54 @@ void MODEMfreeRTOS::mqtt_setup(void(*callback)(uint8_t)){
 
   xSemaphoreGive(mqttTxQueueMutex);
 
-  #ifdef ENABLE_LTE
+#ifdef ENABLE_LTE
   modem.MQTT_init(mqtt_callback);
 
   for(uint8_t i = 0; i<MAX_MQTT_CONNECTIONS; i++){
     if(mqtt[i].contextID != 0)
       modem.MQTT_setup(i,mqtt[i].contextID,mqtt[i].prefix+mqtt[i].will_topic,mqtt[i].will_payload);
-  }
-  #endif
+  } 
+#endif
 }
 
-void MODEMfreeRTOS::mqtt_wifi_setup(void(*callback)()){
+void MODEMfreeRTOS::mqtt_wifi_setup(uint8_t clientID,void(*callback)()){
 
   xSemaphoreGive(mqttTxQueueMutex);
 
-  #ifndef ENABLE_LTE
+#ifndef ENABLE_LTE
+  if(mqtt[clientID].active){
+    if(clientID == 0){
+      mqtt1.setOnConnectionEstablishedCallback(callback);
 
-  mqtt2.setOnConnectionEstablishedCallback(callback);
+      topic1 = mqtt[clientID].prefix+mqtt[clientID].will_topic;
+      Serial.printf("clientID: %d will: %s\n",clientID,topic1.c_str());
+      mqtt1.enableLastWillMessage(topic1.c_str(),"offline",true);
 
-  #endif
+      mqtt1.setMqttClientName(mqtt[clientID].nick.c_str());
+      mqtt1.setMqttServer(
+        mqtt[clientID].host.c_str(),
+        mqtt[clientID].user.c_str(),
+        mqtt[clientID].pwd.c_str(),
+        mqtt[clientID].port
+      );
+      Serial.printf("mqtt %d name: %s \n",clientID,mqtt1.getMqttClientName());
+  }else if(clientID == 1){
+
+      topic2 = mqtt[clientID].prefix+mqtt[clientID].will_topic;
+      Serial.printf("clientID: %d will: %s\n",clientID,topic2.c_str());
+      mqtt2.enableLastWillMessage(topic2.c_str(),"offline",true);
+
+      mqtt2.setMqttClientName(mqtt[clientID].nick.c_str());
+      mqtt2.setMqttServer(
+        mqtt[clientID].host.c_str(),
+        mqtt[clientID].user.c_str(),
+        mqtt[clientID].pwd.c_str(),
+        mqtt[clientID].port
+      );
+      Serial.printf("mqtt %d name: %s \n",clientID,mqtt1.getMqttClientName());
+    }
+  }
+#endif
 }
 
 /*
@@ -1788,100 +1774,52 @@ void mqtt_enqueue_msg(uint8_t clientID, String topic, String payload){
 void MODEMfreeRTOS::WiFiEvent(WiFiEvent_t event){
 
   switch (event) {
-    case SYSTEM_EVENT_WIFI_READY:
-        #ifdef DEBUG_WIFI
-        Serial.println("WiFi interface ready");
-        String mac = WiFi.macAddress();
-        // drop ':''
-        mac.replace(":", "");
-        // lower letters
-        mac.toLowerCase();
-        mac_address = mac;
-        #endif
-        break;
-    case SYSTEM_EVENT_SCAN_DONE:
-        #ifdef DEBUG_WIFI
-        Serial.println("Completed scan for access points");
-        #endif
-        break;
-    case SYSTEM_EVENT_STA_START:
-        #ifdef DEBUG_WIFI
-        Serial.println("WiFi client started");
-        #endif
-        break;
-    case SYSTEM_EVENT_STA_STOP:
-        #ifdef DEBUG_WIFI
-        Serial.println("WiFi clients stopped");
-        #endif
-        break;
-    case SYSTEM_EVENT_STA_CONNECTED:
-        #ifdef DEBUG_WIFI
-        Serial.println("Connected to access point");
-        #endif
-        break;
-    case SYSTEM_EVENT_STA_DISCONNECTED:
-        #ifdef DEBUG_WIFI
-        Serial.println("Disconnected from WiFi access point");
-        #endif
-        wifi_connected = false;
-        if(retry_counter > 900){
-          retry_counter *= 3;
-        }else retry_counter = 1;
-        connect_retry = retry_counter*60*1000;
-        break;
-    case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
-        #ifdef DEBUG_WIFI
-        Serial.println("Authentication mode of access point has changed");
-        #endif
-        break;
-    case SYSTEM_EVENT_STA_GOT_IP:
-        Serial.print("Obtained IP address: ");
-        #ifdef DEBUG_WIFI
-        Serial.println(WiFi.localIP());
-        #endif
-        ip = WiFi.localIP().toString();
-        wifi_connected = true;
-        break;
-    case SYSTEM_EVENT_STA_LOST_IP:
-        #ifdef DEBUG_WIFI
-        Serial.println("Lost IP address and IP address is reset to 0");
-        #endif
-        break;
-    case SYSTEM_EVENT_AP_START:
-        #ifdef DEBUG_WIFI
-        Serial.println("WiFi access point started");
-        #endif
-        break;
-    case SYSTEM_EVENT_AP_STOP:
-        #ifdef DEBUG_WIFI
-        Serial.println("WiFi access point  stopped");
-        #endif
-        break;
-    case SYSTEM_EVENT_AP_STACONNECTED:
-        #ifdef DEBUG_WIFI
-        Serial.println("Client connected");
-        #endif
-        break;
-    case SYSTEM_EVENT_AP_STADISCONNECTED:
-        #ifdef DEBUG_WIFI
-        Serial.println("Client disconnected");
-        #endif
-        break;
-    case SYSTEM_EVENT_AP_STAIPASSIGNED:
-        #ifdef DEBUG_WIFI
-        Serial.println("Assigned IP address to client");
-        #endif
-        break;
-    case SYSTEM_EVENT_AP_PROBEREQRECVED:
-        #ifdef DEBUG_WIFI
-        Serial.println("Received probe request");
-        #endif
-        break;
-    case SYSTEM_EVENT_GOT_IP6:
-        #ifdef DEBUG_WIFI
-        Serial.println("IPv6 is preferred");
-        #endif
-        break;
+    case ARDUINO_EVENT_WIFI_READY:               Serial.println("WiFi interface ready"); break;
+    case ARDUINO_EVENT_WIFI_SCAN_DONE:           Serial.println("Completed scan for access points"); break;
+    case ARDUINO_EVENT_WIFI_STA_START:           Serial.println("WiFi client started"); break;
+    case ARDUINO_EVENT_WIFI_STA_STOP:            Serial.println("WiFi clients stopped"); break;
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:       Serial.println("Connected to access point"); break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      wifi_connected = false;
+      if(retry_counter > 900){
+        retry_counter *= 3;
+      }else retry_counter = 1;
+      connect_retry = retry_counter*60*1000;
+      Serial.println("Disconnected from WiFi access point"); 
+      break;
+    case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE: Serial.println("Authentication mode of access point has changed"); break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      wifi_connected = true;
+      Serial.print("Obtained IP address: ");
+      Serial.println(WiFi.localIP());
+      break;
+    case ARDUINO_EVENT_WIFI_STA_LOST_IP:        
+      wifi_connected = true;
+      Serial.println("Lost IP address and IP address is reset to 0"); 
+      break;
+    case ARDUINO_EVENT_WPS_ER_SUCCESS:          Serial.println("WiFi Protected Setup (WPS): succeeded in enrollee mode"); break;
+    case ARDUINO_EVENT_WPS_ER_FAILED:           Serial.println("WiFi Protected Setup (WPS): failed in enrollee mode"); break;
+    case ARDUINO_EVENT_WPS_ER_TIMEOUT:          Serial.println("WiFi Protected Setup (WPS): timeout in enrollee mode"); break;
+    case ARDUINO_EVENT_WPS_ER_PIN:              Serial.println("WiFi Protected Setup (WPS): pin code in enrollee mode"); break;
+    case ARDUINO_EVENT_WIFI_AP_START:           Serial.println("WiFi access point started"); break;
+    case ARDUINO_EVENT_WIFI_AP_STOP:            Serial.println("WiFi access point  stopped"); break;
+    case ARDUINO_EVENT_WIFI_AP_STACONNECTED:    Serial.println("Client connected"); break;
+    case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED: Serial.println("Client disconnected"); break;
+    case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED:   Serial.println("Assigned IP address to client"); break;
+    case ARDUINO_EVENT_WIFI_AP_PROBEREQRECVED:  Serial.println("Received probe request"); break;
+    case ARDUINO_EVENT_WIFI_AP_GOT_IP6:         Serial.println("AP IPv6 is preferred"); break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP6:        Serial.println("STA IPv6 is preferred"); break;
+    case ARDUINO_EVENT_ETH_GOT_IP6:             Serial.println("Ethernet IPv6 is preferred"); break;
+    case ARDUINO_EVENT_ETH_START:               Serial.println("Ethernet started"); break;
+    case ARDUINO_EVENT_ETH_STOP:                Serial.println("Ethernet stopped"); break;
+    case ARDUINO_EVENT_ETH_CONNECTED:           Serial.println("Ethernet connected"); break;
+    case ARDUINO_EVENT_ETH_DISCONNECTED:        Serial.println("Ethernet disconnected"); break;
+    case ARDUINO_EVENT_ETH_GOT_IP:              Serial.println("Obtained IP address"); break;
+    default:
+      #ifdef DEBUG_WIFI
+        Serial.printf("WiFi event not defined %d \n",event);
+      #endif
+      break;
   }
 }
 #endif
