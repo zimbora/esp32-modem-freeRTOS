@@ -294,6 +294,29 @@ void MODEMfreeRTOS::sync_clock(){
 }
 #endif
 
+/*
+* reconnect class for WiFi
+*/
+void MODEMfreeRTOS::wifiReconnect(const char* ssid, const char* password){
+
+  for(uint8_t i = 0; i<MAX_MQTT_CONNECTIONS; i++){
+    mqtt[i].contextID = 0;
+    mqtt[i].active = false;
+    mqtt[i].msg_id = 0;
+  }
+
+  for(uint8_t i = 0; i<MAX_TCP_CONNECTIONS; i++){
+    tcp[i].contextID = 0;
+    tcp[i].active = false;
+  }
+
+  Serial.printf("wifi reconnect: ssid: %s \n",ssid);
+  WiFi.disconnect(true);
+  WiFi.onEvent(WiFiEvent);
+  WiFi.begin(ssid, password);
+
+}
+
 // Don't use it for now. It will force mqtt lib to handle wifi
 void MODEMfreeRTOS::wifi_configure_ap(const char* wifi_ssid, const char* wifi_pwd){
   /*
@@ -1778,7 +1801,12 @@ void MODEMfreeRTOS::WiFiEvent(WiFiEvent_t event){
     case ARDUINO_EVENT_WIFI_SCAN_DONE:           Serial.println("Completed scan for access points"); break;
     case ARDUINO_EVENT_WIFI_STA_START:           Serial.println("WiFi client started"); break;
     case ARDUINO_EVENT_WIFI_STA_STOP:            Serial.println("WiFi clients stopped"); break;
-    case ARDUINO_EVENT_WIFI_STA_CONNECTED:       Serial.println("Connected to access point"); break;
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:       
+      Serial.println("Connected to access point"); 
+      #ifndef ENABLE_LTE
+        update_clock = true;;
+      #endif
+      break;
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
       wifi_connected = false;
       if(retry_counter > 900){

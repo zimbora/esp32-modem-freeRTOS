@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.4
+	- Adds Wifi reconnect
+
 ## 1.0.3
 	- uses modem-freeRTOS.hpp v1.0.2
 	- WiFi events changed

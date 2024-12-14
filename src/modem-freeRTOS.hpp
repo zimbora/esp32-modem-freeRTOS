@@ -116,6 +116,7 @@ class MODEMfreeRTOS{
     String get_model_identification();
     String get_firmware_version();
 
+    void wifiReconnect(const char* ssid, const char* password);
     void wifi_configure_ap(const char* wifi_ssid, const char* wifi_pwd);
     static bool isWifiConnected();
 

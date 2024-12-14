@@ -2,9 +2,10 @@
 
 ## Dependencies 
   - Board esp32 by Espressif Systems 3.0.7
-  - modem-freeRTOS.hpp v1.0.2
   - WiFi.h v1.2.7
+  - HTTPClient v2.2.0
   - EspMQTTClient.h v1.13.3
+  - TimeLib v1.6.1
   - esp32-BG95 v1.0.5
 
 ## Usage
