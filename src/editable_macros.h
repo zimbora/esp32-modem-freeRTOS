@@ -5,7 +5,7 @@
 // --- MACROS FOR DEBUG ---
 //#define DEBUG_WIFI
 
-#define DEBUG_HTTP
+//#define DEBUG_HTTP
 #define WARNING_HTTP_GW
 #define DEBUG_HTTP_ERROR
 

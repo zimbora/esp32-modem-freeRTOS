@@ -76,6 +76,8 @@ bool mqtt_parse_msg(uint8_t clientID, String topic, String payload){
 */
 void MODEMfreeRTOS::init(const char* ssid, const char* password){
 
+  Serial.println("Initing mRTOS..");
+
   mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG_RX * ) );
   mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG_TX * ) );
 
@@ -122,6 +124,8 @@ void MODEMfreeRTOS::init(const char* ssid, const char* password){
 */
 void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
 
+  Serial.println("Initing mRTOS..");
+  
   mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG_RX * ) );
   mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG_TX * ) );
 
@@ -1143,20 +1147,26 @@ bool MODEMfreeRTOS::wifi_HTTP_REQUEST_(String host, String path, String method, 
   WiFiClient *client = new WiFiClient;
   HTTPClient http;
 
-  #ifdef DEBUG_HTTP
-  Serial.print("[HTTP] begin...\n");
-  Serial.println("host: "+host);
-  Serial.println("path: "+path);
-  Serial.println("method: "+method);
-  #endif
-
   // only port 80 works
   uint16_t port = 80;
   int index = host.indexOf(":");
   if( index > 0){
-    Serial.printf("Port 80 must be used for http, instead of: %lu \n",port);
-    return false;
+    String strPort = host.substring(index+1);
+    Serial.printf("Port in use: %s \n",strPort.c_str());
+    port = strPort.toInt();
+    host = host.substring(0,index);
+    //Serial.printf("Port 80 must be used for http, instead of: %lu \n",port);
+    //return false;
   }
+
+  #ifdef DEBUG_HTTP
+  Serial.print("[HTTP] begin...\n");
+  Serial.println("host: "+host);
+  Serial.println("port: "+String(port));
+  Serial.println("path: "+path);
+  Serial.println("method: "+method);
+  #endif
+
   http.begin(*client,host,port,path); //HTTP
 
   const char *keys[3] = {
@@ -1247,10 +1257,16 @@ bool MODEMfreeRTOS::wifi_HTTP_REQUEST_(String host, String path, String method, 
         Serial.printf("https request to: %s%s has failed..\n",host.c_str(),path.c_str());
         #endif
         http_enqueue_header_msg(0,0,md5.c_str(),http.errorToString(httpCode));
+        return false;
     }
-  }else Serial.println("Unable to do http request, http code: "+String(httpCode));
+  }else{
+    Serial.println("Unable to do http request, http code: "+String(httpCode));
+    http_enqueue_header_msg(0,0,"",http.errorToString(httpCode));
+    return false;
+  } 
 
   http.end();
+  return true;
 }
 #endif
 

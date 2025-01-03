@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.5
+	- Gets port from url 
+	- Disables DEBUG_HTTP macro
+	- Adds logs
+
 ## 1.0.4
 	- Adds Wifi reconnect
 
