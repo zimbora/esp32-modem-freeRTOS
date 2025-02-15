@@ -1838,7 +1838,7 @@ void MODEMfreeRTOS::WiFiEvent(WiFiEvent_t event){
       Serial.println(WiFi.localIP());
       break;
     case ARDUINO_EVENT_WIFI_STA_LOST_IP:        
-      wifi_connected = true;
+      wifi_connected = false;
       Serial.println("Lost IP address and IP address is reset to 0"); 
       break;
     case ARDUINO_EVENT_WPS_ER_SUCCESS:          Serial.println("WiFi Protected Setup (WPS): succeeded in enrollee mode"); break;
