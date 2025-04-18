@@ -6,4 +6,4 @@
 - commit and push
 - create tag
 - push code
-- Library is automacally pushed to Arduino libraries repository
+- Library is automatically pushed to Arduino libraries repository

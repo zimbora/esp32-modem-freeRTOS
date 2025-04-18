@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.7
+	- MQTT 2nd channel fix
+	- Default MQTT Queues size increased
+
 ## 1.0.6
 	- fixes wifi reconnect
 
