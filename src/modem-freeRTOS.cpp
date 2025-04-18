@@ -2,8 +2,8 @@
 
 #include "modem-freeRTOS.hpp"
 
-#define MQTT_RX_QUEUE_SIZE 5
-#define MQTT_TX_QUEUE_SIZE 10
+#define MQTT_RX_QUEUE_SIZE 10
+#define MQTT_TX_QUEUE_SIZE 20
 
 #define TCP_RX_QUEUE_SIZE 2
 #define TCP_TX_QUEUE_SIZE 2
@@ -1540,7 +1540,9 @@ void MODEMfreeRTOS::mqtt_setup(void(*callback)(uint8_t)){
   mqttOnConnect = callback;
   mqtt_callback = &mqtt_parse_msg;
 
-  xSemaphoreGive(mqttTxQueueMutex);
+  if(!xSemaphoreTake( mqttTxQueueMutex, 200)){
+    return;
+  }
 
 #ifdef ENABLE_LTE
   modem.MQTT_init(mqtt_callback);
@@ -1550,11 +1552,15 @@ void MODEMfreeRTOS::mqtt_setup(void(*callback)(uint8_t)){
       modem.MQTT_setup(i,mqtt[i].contextID,mqtt[i].prefix+mqtt[i].will_topic,mqtt[i].will_payload);
   } 
 #endif
+
+  xSemaphoreGive(mqttTxQueueMutex);
 }
 
 void MODEMfreeRTOS::mqtt_wifi_setup(uint8_t clientID,void(*callback)()){
 
-  xSemaphoreGive(mqttTxQueueMutex);
+  if(!xSemaphoreTake( mqttTxQueueMutex, 200)){
+    return;
+  }
 
 #ifndef ENABLE_LTE
   if(mqtt[clientID].active){
@@ -1575,6 +1581,8 @@ void MODEMfreeRTOS::mqtt_wifi_setup(uint8_t clientID,void(*callback)()){
       Serial.printf("mqtt %d name: %s \n",clientID,mqtt1.getMqttClientName());
   }else if(clientID == 1){
 
+      mqtt2.setOnConnectionEstablishedCallback(callback);
+
       topic2 = mqtt[clientID].prefix+mqtt[clientID].will_topic;
       Serial.printf("clientID: %d will: %s\n",clientID,topic2.c_str());
       mqtt2.enableLastWillMessage(topic2.c_str(),"offline",true);
@@ -1586,10 +1594,12 @@ void MODEMfreeRTOS::mqtt_wifi_setup(uint8_t clientID,void(*callback)()){
         mqtt[clientID].pwd.c_str(),
         mqtt[clientID].port
       );
-      Serial.printf("mqtt %d name: %s \n",clientID,mqtt1.getMqttClientName());
+      Serial.printf("mqtt %d name: %s \n",clientID,mqtt2.getMqttClientName());
     }
   }
 #endif
+
+  xSemaphoreGive(mqttTxQueueMutex);
 }
 
 /*
@@ -1682,27 +1692,30 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
      // Send a pointer to a struct AMessage object.  Don't block if the
      // queue is already full.
 
-     if(!xSemaphoreTake( mqttTxQueueMutex, 2000)){
-       xSemaphoreGive(mqttTxQueueMutex);
-       Serial.println("Couldn't get mqttTxQueueMutex");
-       return false;
-     }
-
-     pxMessage = &tx_mqtt_msg[uxQueueMessagesWaiting(mqttTxQueue)];
-     memset(pxMessage->topic,0,sizeof(pxMessage->topic));
-     memset(pxMessage->data,0,sizeof(pxMessage->data));
-
-     String topic_ = mqtt[clientID].prefix+topic;
-     memcpy(pxMessage->topic,topic_.c_str(),topic_.length());
-     memcpy(pxMessage->data,message.c_str(),message.length());
-     pxMessage->qos = qos;
-     pxMessage->retain = retain;
-     pxMessage->clientID = clientID;
-
-     bool res = xQueueSendToBack( mqttTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
+    if(!xSemaphoreTake( mqttTxQueueMutex, 2000)){
      xSemaphoreGive(mqttTxQueueMutex);
-     return res;
+     Serial.println("Couldn't get mqttTxQueueMutex");
+     return false;
+    }
+
+    pxMessage = &tx_mqtt_msg[uxQueueMessagesWaiting(mqttTxQueue)];
+    memset(pxMessage->topic,0,sizeof(pxMessage->topic));
+    memset(pxMessage->data,0,sizeof(pxMessage->data));
+
+    String topic_ = mqtt[clientID].prefix+topic;
+    memcpy(pxMessage->topic,topic_.c_str(),topic_.length());
+    memcpy(pxMessage->data,message.c_str(),message.length());
+    pxMessage->qos = qos;
+    pxMessage->retain = retain;
+    pxMessage->clientID = clientID;
+
+    bool res = xQueueSendToBack( mqttTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
+    xSemaphoreGive(mqttTxQueueMutex);
+    return res;
   }
+
+  Serial.println("Queue is full!!");
+  Serial.println("clientId: "+String(clientId)+ " topic: "+topic);
 
   return false;
 
