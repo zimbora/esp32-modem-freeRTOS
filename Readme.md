@@ -50,7 +50,7 @@
   - Manage HTTP/HTTPS multi-requests (WIFI+LTE)
   - Read messages from Queue and sends to modem
   - Get messages from modem and write on respective Queue
-  - Active ARP scan (WiFi only)
+  - Active ARP scan + reverse DNS (WiFi only)
   - SMS not supported for now
 
 ## Examples
@@ -88,6 +88,7 @@
 ### ARP
 [uint8_t arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t timeout_ms)](#ARP-scan)
 [bool arp_scan_ip(IPAddress ip, ARP_HOST* result, uint32_t timeout_ms)](#ARP-scan-ip)
+[uint8_t arp_scan_with_names(NETWORK_HOST* results, uint8_t maxResults, uint32_t arp_timeout_ms, uint32_t dns_timeout_ms)](#ARP-scan-with-names)
 
 ## Examples
   Run programs inside examples folder to check how it works
@@ -121,6 +122,28 @@
   filename=./build/demo-arp-scan/demo-arp-scan.ino.merged.bin
   port=/dev/cu.usbmodem1101
   sudo esptool --port ${port} erase_flash 
+  sudo esptool --port ${port} --baud 460800 write_flash 0x0 ${filename}
+  ```
+
+### demo-arp-reverse
+  Performs an ARP sweep of the entire subnet and then resolves each discovered
+  IP to a hostname via reverse DNS (PTR query to the router's DNS server).
+  Works for all devices on the network including phones, TVs, and IoT devices
+  regardless of what software they run.
+
+  build command
+  ```
+  project=demo-arp-reverse
+  arduino-cli compile -b esp32:esp32:esp32c5 \
+  --build-property build.partitions=min_spiffs \
+  --build-property upload.maximum_size=1966080 \
+  --build-path ./build/${project} ./examples/${project}/${project}.ino 2>&1
+  ```
+  flash command
+  ```
+  filename=./build/demo-arp-reverse/demo-arp-reverse.ino.merged.bin
+  port=/dev/cu.usbmodem1101
+  sudo esptool --port ${port} erase_flash
   sudo esptool --port ${port} --baud 460800 write_flash 0x0 ${filename}
   ```
 ## Unit Test with Arduino
@@ -300,3 +323,42 @@ if (mRTOS.arp_scan_ip(IPAddress(192, 168, 1, 1), &host)) {
         host.mac[3], host.mac[4], host.mac[5]);
 }
 ```
+
+#### ARP scan with names
+* ARP sweep + reverse DNS (PTR) lookup \u2013 the most effective way to find
+* device names (including phones) on the local network (WiFi only).
+* Performs a full ARP scan to discover every live IP, then queries the
+* router's DNS for the hostname of each IP via `gethostbyaddr()`.
+* The router's DHCP server usually registers device names, so phones,
+* laptops, and IoT devices typically resolve to their configured names.
+* Not supported when compiled with `ENABLE_LTE` (returns 0).
+*
+* @results        - caller-allocated array of `NETWORK_HOST` (size >= maxResults)
+* @maxResults     - maximum entries to fill, must be <= `ARP_SCAN_MAX_HOSTS` (default 32)
+* @arp_timeout_ms - milliseconds to wait for ARP replies (default 2000)
+* @dns_timeout_ms - milliseconds per reverse DNS query (default 1000)
+*
+* Returns the number of live hosts written into `results`.
+* `hostname` field is an empty string if the router did not resolve it.
+```
+uint8_t arp_scan_with_names(NETWORK_HOST* results, uint8_t maxResults,
+                             uint32_t arp_timeout_ms = 2000,
+                             uint32_t dns_timeout_ms = 1000);
+```
+Example:
+```cpp
+NETWORK_HOST devices[32];
+uint8_t n = mRTOS.arp_scan_with_names(devices, 32);
+for (uint8_t i = 0; i < n; i++) {
+    Serial.printf("%-15s  %s\n",
+        devices[i].ip.toString().c_str(),
+        devices[i].hostname[0] ? devices[i].hostname : "(unresolved)");
+}
+```
+
+`NETWORK_HOST` struct fields:
+| Field      | Type        | Description                                      |
+|------------|-------------|--------------------------------------------------|
+| `ip`       | `IPAddress` | IPv4 address                                     |
+| `mac`      | `uint8_t[6]`| MAC address                                      |
+| `hostname` | `char[64]`  | Device name from router DNS; empty if unresolved |

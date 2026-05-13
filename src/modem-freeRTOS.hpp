@@ -98,6 +98,13 @@ struct ARP_HOST {
   uint8_t   mac[6];
 };
 
+// Result of arp_scan_with_names(): IP + MAC + hostname from reverse DNS
+struct NETWORK_HOST {
+  IPAddress ip;
+  uint8_t   mac[6];
+  char      hostname[64]; // from reverse DNS (PTR); empty if not resolved
+};
+
 struct MQTT_SETUP {
   uint8_t contextID; // index for TCP tcp[] 1-16, limited to MAX_CONNECTIONS
   bool active;
@@ -160,6 +167,14 @@ class MODEMfreeRTOS{
     // waits <timeout_ms> ms for replies, then returns the number of live hosts
     // written into <results>. <maxResults> must be <= ARP_SCAN_MAX_HOSTS.
     uint8_t arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t timeout_ms = 2000);
+
+    // ARP scan + reverse DNS: like arp_scan() but also attempts a PTR lookup
+    // on each discovered IP to resolve the device hostname (as registered by
+    // the router's DHCP/DNS). Best method to find phone/device names.
+    // WiFi only. <maxResults> must be <= ARP_SCAN_MAX_HOSTS.
+    uint8_t arp_scan_with_names(NETWORK_HOST* results, uint8_t maxResults,
+                                uint32_t arp_timeout_ms = 2000,
+                                uint32_t dns_timeout_ms = 1000);
 
     // Resolve the MAC address of a single IP via ARP – WiFi only.
     // Sends one ARP request, waits <timeout_ms> ms, then fills <result>.
