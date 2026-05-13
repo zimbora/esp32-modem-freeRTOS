@@ -2,6 +2,12 @@
 
 #include "modem-freeRTOS.hpp"
 
+#ifndef ENABLE_LTE
+#include <lwip/etharp.h>
+#include <lwip/netif.h>
+#include <lwip/tcpip.h>   // LOCK_TCPIP_CORE / UNLOCK_TCPIP_CORE
+#endif
+
 #define MQTT_RX_QUEUE_SIZE 10
 #define MQTT_TX_QUEUE_SIZE 20
 
@@ -1792,6 +1798,214 @@ void MODEMfreeRTOS::mqtt_sendMessage(){
 
   }
   xSemaphoreGive(mqttTxQueueMutex);
+}
+
+/*
+* Active ARP scan - WiFi only
+*
+* Sends ARP requests to every unicast host address in the local subnet,
+* waits <timeout_ms> milliseconds for replies, then collects the live hosts
+* from the lwIP ARP cache.
+*
+* @results    - caller-allocated array of ARP_HOST (size >= maxResults)
+* @maxResults - maximum entries to fill (must be <= ARP_SCAN_MAX_HOSTS)
+* @timeout_ms - time to wait for ARP replies after the sweep (default 2000)
+*
+* Returns the number of live hosts written into <results>.
+* Always returns 0 when compiled with ENABLE_LTE.
+*/
+uint8_t MODEMfreeRTOS::arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t timeout_ms) {
+
+#ifndef ENABLE_LTE
+
+  if (!results || maxResults == 0)
+    return 0;
+
+  if (!isWifiConnected()) {
+    #ifdef DEBUG_ARP_SCAN
+    Serial.println("[arp_scan] WiFi not connected");
+    #endif
+    return 0;
+  }
+
+  struct netif *netif = netif_default;
+  if (!netif) {
+    #ifdef DEBUG_ARP_SCAN
+    Serial.println("[arp_scan] no default netif");
+    #endif
+    return 0;
+  }
+
+  IPAddress localIP  = WiFi.localIP();
+  IPAddress subnet   = WiFi.subnetMask();
+
+  // Build host-order 32-bit representations
+  uint32_t ip32   = ((uint32_t)localIP[0] << 24) | ((uint32_t)localIP[1] << 16)
+                  | ((uint32_t)localIP[2] <<  8) |  (uint32_t)localIP[3];
+  uint32_t mask32 = ((uint32_t)subnet[0]  << 24) | ((uint32_t)subnet[1]  << 16)
+                  | ((uint32_t)subnet[2]  <<  8) |  (uint32_t)subnet[3];
+
+  uint32_t net    = ip32 & mask32;
+  uint32_t bcast  = net | (~mask32);
+  uint32_t nHosts = bcast - net - 1;
+  #ifdef DEBUG_ARP_SCAN
+  Serial.printf("[arp_scan] scanning %u hosts on %u.%u.%u.%u/%u.%u.%u.%u\n",
+                nHosts,
+                localIP[0], localIP[1], localIP[2], localIP[3],
+                subnet[0],  subnet[1],  subnet[2],  subnet[3]);
+  #endif
+
+  // --- 1. Send ARP requests (one at a time, holding the core lock each call) ---
+  for (uint32_t h = net + 1; h < bcast; h++) {
+    if (h == ip32)
+      continue; // skip our own address
+
+    ip4_addr_t target;
+    IP4_ADDR(&target,
+             (h >> 24) & 0xFF,
+             (h >> 16) & 0xFF,
+             (h >>  8) & 0xFF,
+              h        & 0xFF);
+
+    LOCK_TCPIP_CORE();
+    etharp_request(netif, &target);
+    UNLOCK_TCPIP_CORE();
+
+    delay(2); // ~2 ms between probes to avoid flooding
+  }
+
+  // --- 2. Wait for replies ---
+  delay(timeout_ms);
+
+  // --- 3. Harvest the ARP cache ---
+  uint8_t count = 0;
+  for (uint32_t h = net + 1; h < bcast && count < maxResults; h++) {
+    if (h == ip32)
+      continue;
+
+    ip4_addr_t target;
+    IP4_ADDR(&target,
+             (h >> 24) & 0xFF,
+             (h >> 16) & 0xFF,
+             (h >>  8) & 0xFF,
+              h        & 0xFF);
+
+    struct eth_addr       *eth_ret  = nullptr;
+    const ip4_addr_t      *ip_ret   = nullptr;
+
+    LOCK_TCPIP_CORE();
+    int8_t idx = etharp_find_addr(netif, &target,
+                                  &eth_ret,
+                                  &ip_ret);
+    // Copy MAC while still holding the lock (cache entry could be recycled)
+    uint8_t mac_tmp[6];
+    if (idx >= 0 && eth_ret != nullptr)
+      memcpy(mac_tmp, eth_ret->addr, 6);
+    UNLOCK_TCPIP_CORE();
+
+    if (idx >= 0 && eth_ret != nullptr) {
+      results[count].ip = IPAddress((h >> 24) & 0xFF,
+                                    (h >> 16) & 0xFF,
+                                    (h >>  8) & 0xFF,
+                                     h        & 0xFF);
+      memcpy(results[count].mac, mac_tmp, 6);
+      count++;
+    }
+  }
+  #ifdef DEBUG_ARP_SCAN
+  Serial.printf("[arp_scan] found %u live host(s)\n", count);
+  #endif
+  return count;
+
+#else
+  (void)results;
+  (void)maxResults;
+  (void)timeout_ms;
+  Serial.println("[arp_scan] not supported on LTE");
+  return 0;
+#endif
+
+}
+
+/*
+* Resolve the MAC address of a single IP address via ARP – WiFi only.
+*
+* Sends a single ARP request for <ip>, waits <timeout_ms> ms for a reply,
+* then reads the result from the lwIP ARP cache.
+*
+* @ip         - target IPv4 address
+* @result     - caller-allocated ARP_HOST struct to fill on success
+* @timeout_ms - time to wait for the ARP reply (default 2000)
+*
+* Returns true if the MAC was resolved, false otherwise.
+* Always returns false when compiled with ENABLE_LTE.
+*/
+bool MODEMfreeRTOS::arp_scan_ip(IPAddress ip, ARP_HOST* result, uint32_t timeout_ms) {
+
+#ifndef ENABLE_LTE
+
+  if (!result) return false;
+
+  if (!isWifiConnected()) {
+    #ifdef DEBUG_ARP_SCAN
+    Serial.println("[arp_scan_ip] WiFi not connected");
+    #endif
+    return false;
+  }
+
+  struct netif *netif = netif_default;
+  if (!netif) {
+    #ifdef DEBUG_ARP_SCAN
+    Serial.println("[arp_scan_ip] no default netif");
+    #endif
+    return false;
+  }
+
+  ip4_addr_t target;
+  IP4_ADDR(&target, ip[0], ip[1], ip[2], ip[3]);
+
+  // --- 1. Send a single ARP request ---
+  LOCK_TCPIP_CORE();
+  etharp_request(netif, &target);
+  UNLOCK_TCPIP_CORE();
+
+  // --- 2. Wait for the reply ---
+  delay(timeout_ms);
+
+  // --- 3. Check the ARP cache ---
+  struct eth_addr  *eth_ret = nullptr;
+  const ip4_addr_t *ip_ret  = nullptr;
+
+  LOCK_TCPIP_CORE();
+  int8_t idx = etharp_find_addr(netif, &target, &eth_ret, &ip_ret);
+  uint8_t mac_tmp[6];
+  if (idx >= 0 && eth_ret != nullptr)
+    memcpy(mac_tmp, eth_ret->addr, 6);
+  UNLOCK_TCPIP_CORE();
+
+  if (idx >= 0 && eth_ret != nullptr) {
+    result->ip = ip;
+    memcpy(result->mac, mac_tmp, 6);
+    #ifdef DEBUG_ARP_SCAN
+    Serial.printf("[arp_scan_ip] %s -> %02X:%02X:%02X:%02X:%02X:%02X\n",
+                  ip.toString().c_str(),
+                  mac_tmp[0], mac_tmp[1], mac_tmp[2],
+                  mac_tmp[3], mac_tmp[4], mac_tmp[5]);
+    #endif
+    return true;
+  }
+
+  Serial.printf("[arp_scan_ip] no reply from %s\n", ip.toString().c_str());
+  return false;
+
+#else
+  (void)ip;
+  (void)result;
+  (void)timeout_ms;
+  Serial.println("[arp_scan_ip] not supported on LTE");
+  return false;
+#endif
+
 }
 
 /*

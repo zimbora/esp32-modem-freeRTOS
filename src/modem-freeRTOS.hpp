@@ -88,6 +88,16 @@ struct MQTT_MSG_RX {
   uint8_t clientID;
 };
 
+// Maximum number of hosts returned by arp_scan()
+#ifndef ARP_SCAN_MAX_HOSTS
+#define ARP_SCAN_MAX_HOSTS 32
+#endif
+
+struct ARP_HOST {
+  IPAddress ip;
+  uint8_t   mac[6];
+};
+
 struct MQTT_SETUP {
   uint8_t contextID; // index for TCP tcp[] 1-16, limited to MAX_CONNECTIONS
   bool active;
@@ -145,6 +155,16 @@ class MODEMfreeRTOS{
     bool mqtt_isConnected(uint8_t clientID);
     bool mqtt_pushMessage(uint8_t clientID, const String& topic, const String& message, uint8_t qos, uint8_t retain);
     MQTT_MSG_RX* mqtt_getNextMessage(MQTT_MSG_RX *pxRxedMessage);
+
+    // Active ARP scan – WiFi only. Probes every host in the local subnet,
+    // waits <timeout_ms> ms for replies, then returns the number of live hosts
+    // written into <results>. <maxResults> must be <= ARP_SCAN_MAX_HOSTS.
+    uint8_t arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t timeout_ms = 2000);
+
+    // Resolve the MAC address of a single IP via ARP – WiFi only.
+    // Sends one ARP request, waits <timeout_ms> ms, then fills <result>.
+    // Returns true if the MAC was resolved, false otherwise.
+    bool arp_scan_ip(IPAddress ip, ARP_HOST* result, uint32_t timeout_ms = 2000);
 
     void log_modem_status();
     int16_t get_rssi();

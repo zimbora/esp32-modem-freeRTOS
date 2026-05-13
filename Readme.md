@@ -50,6 +50,7 @@
   - Manage HTTP/HTTPS multi-requests (WIFI+LTE)
   - Read messages from Queue and sends to modem
   - Get messages from modem and write on respective Queue
+  - Active ARP scan (WiFi only)
   - SMS not supported for now
 
 ## Examples
@@ -84,6 +85,10 @@
 [bool mqtt_pushMessage(uint8_t clientID, const String& topic, const String& message, uint8_t qos, uint8_t retain)](#MQTT-pushMessage)
 [MQTT_MSG* mqtt_getNextMessage(MQTT_MSG *pxRxedMessage)](#MQTT-getNextMessage)
 
+### ARP
+[uint8_t arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t timeout_ms)](#ARP-scan)
+[bool arp_scan_ip(IPAddress ip, ARP_HOST* result, uint32_t timeout_ms)](#ARP-scan-ip)
+
 ## Examples
   Run programs inside examples folder to check how it works
 
@@ -100,7 +105,24 @@
     - One process is controlling the modem, handling mqtt connection and executing requests
     - The other one is used to send and received requests to and from the first process
 
+### demo-arp-scan
+  Perform an active arp scan on network after registration
 
+  build command
+  ```
+  project=demo-arp-scan
+  arduino-cli compile -b esp32:esp32:esp32c5 \
+  --build-property build.partitions=min_spiffs \
+  --build-property upload.maximum_size=1966080 \
+  --build-path ./build/${project} ./examples/${project}/${project}.ino 2>&1
+  ```
+  flash command
+  ```
+  filename=./build/demo-arp-scan/demo-arp-scan.ino.merged.bin
+  port=/dev/cu.usbmodem1101
+  sudo esptool --port ${port} erase_flash 
+  sudo esptool --port ${port} --baud 460800 write_flash 0x0 ${filename}
+  ```
 ## Unit Test with Arduino
   Not available for now
 ### unitTest
@@ -226,4 +248,55 @@ bool mqtt_pushMessage(uint8_t clientID, const String& topic, const String& messa
 #### MQTT getNextMessage
 ```
 void init(uint16_t cops, uint8_t mode, uint8_t pwkey);
+```
+### ARP
+
+#### ARP scan
+* Performs an active ARP sweep of the entire local subnet (WiFi only).
+* Sends one ARP request per host address, waits `timeout_ms` ms for replies,
+* then harvests the lwIP ARP cache and fills the `results` array.
+* Not supported when compiled with `ENABLE_LTE` (returns 0).
+*
+* @results    - caller-allocated array of `ARP_HOST` structs (size >= maxResults)
+* @maxResults - maximum entries to fill, must be <= `ARP_SCAN_MAX_HOSTS` (default 32)
+* @timeout_ms - milliseconds to wait for ARP replies (default 2000)
+*
+* Returns the number of live hosts written into `results`.
+```
+uint8_t arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t timeout_ms = 2000);
+```
+Example:
+```cpp
+ARP_HOST results[32];
+uint8_t found = mRTOS.arp_scan(results, 32, 3000);
+for (uint8_t i = 0; i < found; i++) {
+    Serial.printf("%s -> %02X:%02X:%02X:%02X:%02X:%02X\n",
+        results[i].ip.toString().c_str(),
+        results[i].mac[0], results[i].mac[1], results[i].mac[2],
+        results[i].mac[3], results[i].mac[4], results[i].mac[5]);
+}
+```
+
+#### ARP scan ip
+* Resolves the MAC address of a single IP address via ARP (WiFi only).
+* Sends one ARP request, waits `timeout_ms` ms, then reads the result from
+* the lwIP ARP cache.
+* Not supported when compiled with `ENABLE_LTE` (returns false).
+*
+* @ip         - target IPv4 address
+* @result     - caller-allocated `ARP_HOST` struct to fill on success
+* @timeout_ms - milliseconds to wait for the ARP reply (default 2000)
+*
+* Returns `true` if the MAC was resolved, `false` otherwise.
+```
+bool arp_scan_ip(IPAddress ip, ARP_HOST* result, uint32_t timeout_ms = 2000);
+```
+Example:
+```cpp
+ARP_HOST host;
+if (mRTOS.arp_scan_ip(IPAddress(192, 168, 1, 1), &host)) {
+    Serial.printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+        host.mac[0], host.mac[1], host.mac[2],
+        host.mac[3], host.mac[4], host.mac[5]);
+}
 ```

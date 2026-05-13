@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.9 - released
+	feat: supports arp scan
+
 ## 1.0.8 - released
 
 ## 1.0.7 - !! Error

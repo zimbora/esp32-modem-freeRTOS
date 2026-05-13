@@ -8,6 +8,7 @@
 //#define DEBUG_HTTP
 #define WARNING_HTTP_GW
 #define DEBUG_HTTP_ERROR
+//#define DEBUG_ARP_SCAN
 
 //#define DEBUG_MQTT_MSG
 // --- ----- ---
