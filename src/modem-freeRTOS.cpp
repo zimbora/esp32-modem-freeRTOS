@@ -2175,7 +2175,7 @@ uint8_t MODEMfreeRTOS::arp_scan_with_names(NETWORK_HOST* results, uint8_t maxRes
 
     dns_ptr_lookup(arp_results[i].ip, results[i].hostname,
                    sizeof(results[i].hostname), dns_timeout_ms);
-                   
+
     #ifdef DEBUG_ARP_SCAN
     Serial.printf("[arp_scan_with_names] %s  ->  %s\n",
                   arp_results[i].ip.toString().c_str(),
@@ -2192,6 +2192,59 @@ uint8_t MODEMfreeRTOS::arp_scan_with_names(NETWORK_HOST* results, uint8_t maxRes
   (void)dns_timeout_ms;
   Serial.println("[arp_scan_with_names] not supported on LTE");
   return 0;
+#endif
+}
+
+/*
+* Resolve a single IP via ARP then reverse DNS – WiFi only.
+*
+* Combines arp_scan_ip() (MAC resolution) with a reverse DNS PTR query to the
+* router's DNS server to obtain the device hostname.
+*
+* @ip            - target IPv4 address
+* @result        - caller-allocated NETWORK_HOST struct to fill on success
+* @arp_timeout_ms - time to wait for the ARP reply (default 2000)
+* @dns_timeout_ms - time to wait for the DNS PTR reply (default 1000)
+*
+* Returns true if the MAC was resolved (ARP succeeded).
+* hostname field is filled if the router's DNS had a PTR record; empty otherwise.
+* Always returns false when compiled with ENABLE_LTE.
+*/
+bool MODEMfreeRTOS::arp_scan_ip_with_name(IPAddress ip, NETWORK_HOST* result,
+                                           uint32_t arp_timeout_ms,
+                                           uint32_t dns_timeout_ms) {
+#ifndef ENABLE_LTE
+
+  if (!result) return false;
+
+  // --- 1. Resolve MAC via ARP ---
+  ARP_HOST arp;
+  if (!arp_scan_ip(ip, &arp, arp_timeout_ms))
+    return false;
+
+  result->ip = arp.ip;
+  memcpy(result->mac, arp.mac, 6);
+  result->hostname[0] = '\0';
+
+  // --- 2. Reverse DNS PTR lookup ---
+  dns_ptr_lookup(ip, result->hostname, sizeof(result->hostname), dns_timeout_ms);
+  
+  #ifdef DEBUG_ARP_SCAN
+  Serial.printf("[arp_scan_ip_with_name] %s  mac=%02X:%02X:%02X:%02X:%02X:%02X  host=%s\n",
+                ip.toString().c_str(),
+                result->mac[0], result->mac[1], result->mac[2],
+                result->mac[3], result->mac[4], result->mac[5],
+                result->hostname[0] ? result->hostname : "(unresolved)");
+  #endif
+  return true;
+
+#else
+  (void)ip;
+  (void)result;
+  (void)arp_timeout_ms;
+  (void)dns_timeout_ms;
+  Serial.println("[arp_scan_ip_with_name] not supported on LTE");
+  return false;
 #endif
 }
 

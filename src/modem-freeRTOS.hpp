@@ -176,6 +176,14 @@ class MODEMfreeRTOS{
                                 uint32_t arp_timeout_ms = 2000,
                                 uint32_t dns_timeout_ms = 1000);
 
+    // Resolve a single IP via ARP and then attempt a reverse DNS (PTR) lookup
+    // to get the device hostname. WiFi only.
+    // Returns true if the MAC was resolved; hostname may be empty if the
+    // router's DNS did not have a PTR record for that IP.
+    bool arp_scan_ip_with_name(IPAddress ip, NETWORK_HOST* result,
+                               uint32_t arp_timeout_ms = 2000,
+                               uint32_t dns_timeout_ms = 1000);
+
     // Resolve the MAC address of a single IP via ARP – WiFi only.
     // Sends one ARP request, waits <timeout_ms> ms, then fills <result>.
     // Returns true if the MAC was resolved, false otherwise.

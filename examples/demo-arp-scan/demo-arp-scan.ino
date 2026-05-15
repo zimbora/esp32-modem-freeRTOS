@@ -97,8 +97,8 @@ void loop() {
       Serial.println();
     } else {
       Serial.println("Failed to resolve gateway IP");
-    
     }
+    
     // ── run the scan ─────────────────────────────────────────────────────
     Serial.println("\n--- Starting ARP scan ---");
     ARP_HOST results[MAX_RESULTS];
