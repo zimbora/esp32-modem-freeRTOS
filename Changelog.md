@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.10 - released
+	feat: supports arp reverse scan (scan with hostname)
+	feat: supports arp scan for a specific IP
+	change: reduces MQTT Tx Payload do 512 bytes
+
 ## 1.0.9 - released
 	feat: supports arp scan
 
