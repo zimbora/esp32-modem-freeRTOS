@@ -11,6 +11,17 @@
  *
  * Wiring: none – uses the on-board WiFi radio.
  *
+ * Logging:
+ *   On ESP32-C5 the built-in USB Serial/JTAG peripheral is exposed as
+ *   the standard `Serial` object when the Arduino board option
+ *   "USB CDC On Boot" is set to "Enabled" (default for most ESP32-C5 boards).
+ *
+ *   Just connect the USB-C cable and open /dev/cu.usbmodem* (macOS) or
+ *   COMx (Windows) at any baud rate – no USB-to-UART adapter needed.
+ *
+ *   If you also want UART0 output on the TX pin, set
+ *   "USB CDC On Boot" to "Disabled" and use an external adapter at 115200.
+ *
  * Compile-time note:
  *   Make sure editable_macros.h does NOT define ENABLE_LTE (WiFi mode).
  */
@@ -27,6 +38,11 @@
 
 // Milliseconds to wait for ARP replies after the sweep
 #define ARP_TIMEOUT_MS 3000
+
+// ── Logging ───────────────────────────────────────────────────────────────────
+// On ESP32-C5 with "USB CDC On Boot: Enabled", Serial goes directly to the
+// built-in USB Serial/JTAG port – no adapter needed.
+#define LOG(fmt, ...) Serial.printf(fmt, ##__VA_ARGS__)
 
 MODEMfreeRTOS mRTOS;
 
@@ -47,27 +63,28 @@ static void printMAC(const uint8_t mac[6]) {
 
 void setup() {
   Serial.begin(115200);
+
   delay(500);
-  Serial.println("\n=== modem-freeRTOS  active ARP scan demo ===");
+  LOG("\n=== modem-freeRTOS  active ARP scan demo ===\n");
 
   // Initialise the library in WiFi mode
   mRTOS.init(WIFI_SSID, WIFI_PASS);
 
   // Wait until the WiFi association is established
-  Serial.print("Connecting to WiFi");
+  LOG("Connecting to WiFi");
   uint32_t t = millis();
   while (!MODEMfreeRTOS::isWifiConnected()) {
     mRTOS.loop();
     if (millis() - t > 30000) {
-      Serial.println("\nFailed to connect – halting.");
+      LOG("\nFailed to connect - halting.\n");
       while (true) delay(1000);
     }
     delay(500);
-    Serial.print('.');
+    LOG(".");
   }
-  Serial.println(" OK");
-  Serial.printf("Local IP : %s\n", WiFi.localIP().toString().c_str());
-  Serial.printf("Subnet   : %s\n", WiFi.subnetMask().toString().c_str());
+  LOG(" OK\n");
+  LOG("Local IP : %s\n", WiFi.localIP().toString().c_str());
+  LOG("Subnet   : %s\n", WiFi.subnetMask().toString().c_str());
 }
 
 // ── loop ─────────────────────────────────────────────────────────────────────
@@ -83,37 +100,39 @@ void loop() {
     lastScan = millis();
 
     if (!MODEMfreeRTOS::isWifiConnected()) {
-      Serial.println("[demo] WiFi not connected, skipping scan.");
+      LOG("[demo] WiFi not connected, skipping scan.\n");
       return;
     }
-    
+
     // ── run IP scan ─────────────────────────────────────────────────────
-    Serial.println("\n--- Starting IP ARP scan ---");
+    LOG("\n--- Starting IP ARP scan ---\n");
     ARP_HOST host[1];
-    bool res = mRTOS.arp_scan_ip(IPAddress(192, 168, 1, 3), host, ARP_TIMEOUT_MS); // example: resolve gateway IP
-    if(res){
-      Serial.printf("Gateway %s is at ", host[0].ip.toString().c_str());
+    bool res = mRTOS.arp_scan_ip(IPAddress(192, 168, 1, 3), host, ARP_TIMEOUT_MS);
+    if (res) {
+      LOG("Gateway %s is at ", host[0].ip.toString().c_str());
       printMAC(host[0].mac);
-      Serial.println();
+      LOG("\n");
     } else {
-      Serial.println("Failed to resolve gateway IP");
+      LOG("Failed to resolve gateway IP\n");
     }
-    
+
     // ── run the scan ─────────────────────────────────────────────────────
-    Serial.println("\n--- Starting ARP scan ---");
+    LOG("\n--- Starting ARP scan ---\n");
     ARP_HOST results[MAX_RESULTS];
     uint8_t found = mRTOS.arp_scan(results, MAX_RESULTS, ARP_TIMEOUT_MS);
 
     // ── print results ────────────────────────────────────────────────────
-    Serial.printf("--- Scan complete: %u live host(s) ---\n", found);
+    LOG("--- Scan complete: %u live host(s) ---\n", found);
     for (uint8_t i = 0; i < found; i++) {
-      Serial.printf("  [%2u]  %-15s  ", i + 1, results[i].ip.toString().c_str());
+      LOG("  [%2u]  %-15s  ", i + 1, results[i].ip.toString().c_str());
       printMAC(results[i].mac);
-      Serial.println();
+      LOG("\n");
     }
     if (found == 0) {
-      Serial.println("  (no hosts responded – check subnet / timeout)");
+      LOG("  (no hosts responded - check subnet / timeout)\n");
     }
-    Serial.println("---------------------------------------");
+    LOG("---------------------------------------\n");
   }
+
+  delay(500);
 }
