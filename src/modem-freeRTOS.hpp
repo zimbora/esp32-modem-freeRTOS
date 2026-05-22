@@ -24,10 +24,15 @@
 #define MQTT_TOPIC_LEN 75
 #endif
 #ifndef MQTT_TX_PAYLOAD_LEN
-#define MQTT_TX_PAYLOAD_LEN 255
+#define MQTT_TX_PAYLOAD_LEN 1024
 #endif
 #ifndef MQTT_RX_PAYLOAD_LEN
-#define MQTT_RX_PAYLOAD_LEN 2048
+#define MQTT_RX_PAYLOAD_LEN 1024
+#endif
+
+// Maximum number of hosts returned by arp_scan()
+#ifndef ARP_SCAN_MAX_HOSTS
+#define ARP_SCAN_MAX_HOSTS 5
 #endif
 
 struct HTTP_HEADER_MSG {
@@ -88,14 +93,16 @@ struct MQTT_MSG_RX {
   uint8_t clientID;
 };
 
-// Maximum number of hosts returned by arp_scan()
-#ifndef ARP_SCAN_MAX_HOSTS
-#define ARP_SCAN_MAX_HOSTS 32
-#endif
-
 struct ARP_HOST {
   IPAddress ip;
   uint8_t   mac[6];
+};
+
+// Result of arp_scan_with_names(): IP + MAC + hostname from reverse DNS
+struct NETWORK_HOST {
+  IPAddress ip;
+  uint8_t   mac[6];
+  char      hostname[64]; // from reverse DNS (PTR); empty if not resolved
 };
 
 struct MQTT_SETUP {
@@ -160,6 +167,22 @@ class MODEMfreeRTOS{
     // waits <timeout_ms> ms for replies, then returns the number of live hosts
     // written into <results>. <maxResults> must be <= ARP_SCAN_MAX_HOSTS.
     uint8_t arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t timeout_ms = 2000);
+
+    // ARP scan + reverse DNS: like arp_scan() but also attempts a PTR lookup
+    // on each discovered IP to resolve the device hostname (as registered by
+    // the router's DHCP/DNS). Best method to find phone/device names.
+    // WiFi only. <maxResults> must be <= ARP_SCAN_MAX_HOSTS.
+    uint8_t arp_scan_with_names(NETWORK_HOST* results, uint8_t maxResults,
+                                uint32_t arp_timeout_ms = 2000,
+                                uint32_t dns_timeout_ms = 1000);
+
+    // Resolve a single IP via ARP and then attempt a reverse DNS (PTR) lookup
+    // to get the device hostname. WiFi only.
+    // Returns true if the MAC was resolved; hostname may be empty if the
+    // router's DNS did not have a PTR record for that IP.
+    bool arp_scan_ip_with_name(IPAddress ip, NETWORK_HOST* result,
+                               uint32_t arp_timeout_ms = 2000,
+                               uint32_t dns_timeout_ms = 1000);
 
     // Resolve the MAC address of a single IP via ARP – WiFi only.
     // Sends one ARP request, waits <timeout_ms> ms, then fills <result>.

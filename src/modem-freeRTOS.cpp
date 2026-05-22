@@ -6,16 +6,9 @@
 #include <lwip/etharp.h>
 #include <lwip/netif.h>
 #include <lwip/tcpip.h>   // LOCK_TCPIP_CORE / UNLOCK_TCPIP_CORE
+#include <WiFiUdp.h>      // raw DNS PTR query for reverse hostname lookup
+#include <ESPmDNS.h>
 #endif
-
-#define MQTT_RX_QUEUE_SIZE 10
-#define MQTT_TX_QUEUE_SIZE 20
-
-#define TCP_RX_QUEUE_SIZE 2
-#define TCP_TX_QUEUE_SIZE 2
-
-#define HTTP_RX_QUEUE_SIZE 1 // !! do not change it
-#define HTTP_TX_QUEUE_SIZE 1 // !! do not change it
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;
@@ -1871,11 +1864,13 @@ uint8_t MODEMfreeRTOS::arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t 
     etharp_request(netif, &target);
     UNLOCK_TCPIP_CORE();
 
-    delay(2); // ~2 ms between probes to avoid flooding
+    vTaskDelay(pdMS_TO_TICKS(2)); // ~2 ms between probes; suspends task so IDLE can run
   }
 
-  // --- 2. Wait for replies ---
-  delay(timeout_ms);
+  // --- 2. Wait for replies (in 50 ms chunks; vTaskDelay guarantees IDLE runs) ---
+  for (uint32_t elapsed = 0; elapsed < timeout_ms; elapsed += 50) {
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
 
   // --- 3. Harvest the ARP cache ---
   uint8_t count = 0;
@@ -1969,8 +1964,10 @@ bool MODEMfreeRTOS::arp_scan_ip(IPAddress ip, ARP_HOST* result, uint32_t timeout
   etharp_request(netif, &target);
   UNLOCK_TCPIP_CORE();
 
-  // --- 2. Wait for the reply ---
-  delay(timeout_ms);
+  // --- 2. Wait for the reply (chunked so IDLE task can run) ---
+  for (uint32_t elapsed = 0; elapsed < timeout_ms; elapsed += 50) {
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
 
   // --- 3. Check the ARP cache ---
   struct eth_addr  *eth_ret = nullptr;
@@ -2006,6 +2003,247 @@ bool MODEMfreeRTOS::arp_scan_ip(IPAddress ip, ARP_HOST* result, uint32_t timeout
   return false;
 #endif
 
+}
+
+/*
+* Private helper: raw UDP DNS PTR query for reverse hostname lookup.
+* Sends a DNS PTR query for X.X.X.X.in-addr.arpa to the router's DNS server.
+* Returns true and fills <out> if the router resolves the hostname.
+*/
+#ifndef ENABLE_LTE
+static bool dns_ptr_lookup(IPAddress ip, char* out, size_t outLen, uint32_t timeout_ms) {
+
+  // Build PTR query name: e.g. 192.168.1.5 -> "5.1.168.192.in-addr.arpa"
+  char qname[64];
+  snprintf(qname, sizeof(qname), "%d.%d.%d.%d.in-addr.arpa",
+           ip[3], ip[2], ip[1], ip[0]);
+
+  IPAddress dnsServer = WiFi.dnsIP();
+  if ((uint32_t)dnsServer == 0) dnsServer = WiFi.gatewayIP();
+
+  WiFiUDP udp;
+  udp.begin(0);
+
+  // --- Build DNS query packet ---
+  uint8_t pkt[256];
+  memset(pkt, 0, sizeof(pkt));
+  uint16_t txid = (uint16_t)millis();
+  pkt[0] = txid >> 8;
+  pkt[1] = txid & 0xFF;
+  pkt[2] = 0x01; // QR=0 query, RD=1 recursion desired
+  pkt[5] = 0x01; // QDCOUNT = 1
+
+  // Encode QNAME as length-prefixed labels
+  uint8_t* p = pkt + 12;
+  char tmp[64];
+  strncpy(tmp, qname, sizeof(tmp) - 1);
+  char* label = tmp;
+  char* dot;
+  while ((dot = strchr(label, '.')) != nullptr) {
+    uint8_t l = dot - label;
+    *p++ = l;
+    memcpy(p, label, l);
+    p += l;
+    label = dot + 1;
+  }
+  uint8_t l = strlen(label);
+  *p++ = l;
+  memcpy(p, label, l);
+  p += l;
+  *p++ = 0x00;        // end of QNAME
+  *p++ = 0x00; *p++ = 0x0C; // QTYPE  = PTR
+  *p++ = 0x00; *p++ = 0x01; // QCLASS = IN
+  uint16_t pktLen = p - pkt;
+
+  udp.beginPacket(dnsServer, 53);
+  udp.write(pkt, pktLen);
+  udp.endPacket();
+
+  // --- Wait for response ---
+  uint32_t t = millis();
+  while (millis() - t < timeout_ms) {
+    int sz = udp.parsePacket();
+    if (sz > 0) {
+      uint8_t resp[512];
+      int n = udp.read(resp, sizeof(resp));
+      udp.stop();
+
+      if (n < 12) return false;
+      if (resp[0] != pkt[0] || resp[1] != pkt[1]) return false; // wrong txid
+      if (!(resp[2] & 0x80)) return false; // not a response
+      uint16_t ancount = ((uint16_t)resp[6] << 8) | resp[7];
+      if (ancount == 0) return false;
+
+      // Skip question section
+      uint8_t* ptr = resp + 12;
+      uint8_t* end = resp + n;
+      while (ptr < end && *ptr != 0) {
+        if ((*ptr & 0xC0) == 0xC0) { ptr += 2; goto skip_qname_done; }
+        ptr += *ptr + 1;
+      }
+      if (ptr < end) ptr++; // null terminator
+      skip_qname_done:
+      ptr += 4; // QTYPE + QCLASS
+
+      // Parse answer records
+      for (uint16_t i = 0; i < ancount && ptr < end; i++) {
+        // Skip NAME (compressed or not)
+        if (ptr < end && (*ptr & 0xC0) == 0xC0) ptr += 2;
+        else { while (ptr < end && *ptr != 0) ptr += *ptr + 1; if (ptr < end) ptr++; }
+
+        if (ptr + 10 > end) break;
+        uint16_t type  = ((uint16_t)ptr[0] << 8) | ptr[1];
+        uint16_t rdlen = ((uint16_t)ptr[8] << 8) | ptr[9];
+        ptr += 10;
+
+        if (type == 0x000C && ptr + rdlen <= end) { // PTR record
+          // Decode the PTR target name (may use compression)
+          uint8_t* np = ptr;
+          char name[64] = {};
+          char* op = name;
+          bool first = true;
+          while (np < end && *np != 0 && op < name + sizeof(name) - 2) {
+            if ((*np & 0xC0) == 0xC0) {
+              uint16_t off = (((uint16_t)(*np & 0x3F)) << 8) | np[1];
+              if (resp + off < end) np = resp + off;
+              else break;
+              continue;
+            }
+            uint8_t ll = *np++;
+            if (!first) *op++ = '.';
+            first = false;
+            ll = (ll < (uint8_t)(name + sizeof(name) - 1 - op)) ? ll : (uint8_t)(name + sizeof(name) - 1 - op);
+            memcpy(op, np, ll);
+            op += ll;
+            np += ll;
+          }
+          *op = '\0';
+          strncpy(out, name, outLen - 1);
+          out[outLen - 1] = '\0';
+          return true;
+        }
+        ptr += rdlen;
+      }
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+  udp.stop();
+  return false;
+}
+#endif
+
+/*
+* ARP scan with reverse DNS hostname resolution - WiFi only.
+*
+* Performs a full ARP sweep of the local subnet (same as arp_scan), then
+* for each live host attempts a reverse DNS (PTR) lookup via gethostbyaddr().
+* The router's DHCP/DNS server usually has device names registered, making
+* this the most reliable way to find phone and device names on the network.
+*
+* @results        - caller-allocated array of NETWORK_HOST (size >= maxResults)
+* @maxResults     - maximum entries to fill (must be <= ARP_SCAN_MAX_HOSTS)
+* @arp_timeout_ms - time to wait for ARP replies (default 2000)
+* @dns_timeout_ms - time to wait per reverse DNS query (default 1000)
+*
+* Returns the number of live hosts written into <results>.
+* hostname field is empty string if reverse DNS did not resolve.
+* Always returns 0 when compiled with ENABLE_LTE.
+*/
+uint8_t MODEMfreeRTOS::arp_scan_with_names(NETWORK_HOST* results, uint8_t maxResults,
+                                            uint32_t arp_timeout_ms,
+                                            uint32_t dns_timeout_ms) {
+#ifndef ENABLE_LTE
+
+  if (!results || maxResults == 0) return 0;
+
+  // --- 1. ARP scan to find live IPs ---
+  ARP_HOST arp_results[ARP_SCAN_MAX_HOSTS];
+  uint8_t count = arp_scan(arp_results,
+                           maxResults < ARP_SCAN_MAX_HOSTS ? maxResults : ARP_SCAN_MAX_HOSTS,
+                           arp_timeout_ms);
+
+  // --- 2. Reverse DNS for each host ---
+  // dns_timeout_ms is capped to 500 ms per host to avoid watchdog resets
+  uint32_t dns_to = (dns_timeout_ms > 500) ? 500 : dns_timeout_ms;
+  for (uint8_t i = 0; i < count; i++) {
+    results[i].ip = arp_results[i].ip;
+    memcpy(results[i].mac, arp_results[i].mac, 6);
+    results[i].hostname[0] = '\0';
+
+    dns_ptr_lookup(arp_results[i].ip, results[i].hostname,
+                   sizeof(results[i].hostname), dns_to);
+
+    #ifdef DEBUG_ARP_SCAN
+    Serial.printf("[arp_scan_with_names] %s  ->  %s\n",
+                  arp_results[i].ip.toString().c_str(),
+                  results[i].hostname[0] ? results[i].hostname : "(unresolved)");
+    #endif
+  }
+
+  return count;
+
+#else
+  (void)results;
+  (void)maxResults;
+  (void)arp_timeout_ms;
+  (void)dns_timeout_ms;
+  Serial.println("[arp_scan_with_names] not supported on LTE");
+  return 0;
+#endif
+}
+
+/*
+* Resolve a single IP via ARP then reverse DNS – WiFi only.
+*
+* Combines arp_scan_ip() (MAC resolution) with a reverse DNS PTR query to the
+* router's DNS server to obtain the device hostname.
+*
+* @ip            - target IPv4 address
+* @result        - caller-allocated NETWORK_HOST struct to fill on success
+* @arp_timeout_ms - time to wait for the ARP reply (default 2000)
+* @dns_timeout_ms - time to wait for the DNS PTR reply (default 1000)
+*
+* Returns true if the MAC was resolved (ARP succeeded).
+* hostname field is filled if the router's DNS had a PTR record; empty otherwise.
+* Always returns false when compiled with ENABLE_LTE.
+*/
+bool MODEMfreeRTOS::arp_scan_ip_with_name(IPAddress ip, NETWORK_HOST* result,
+                                           uint32_t arp_timeout_ms,
+                                           uint32_t dns_timeout_ms) {
+#ifndef ENABLE_LTE
+
+  if (!result) return false;
+
+  // --- 1. Resolve MAC via ARP ---
+  ARP_HOST arp;
+  if (!arp_scan_ip(ip, &arp, arp_timeout_ms))
+    return false;
+
+  result->ip = arp.ip;
+  memcpy(result->mac, arp.mac, 6);
+  result->hostname[0] = '\0';
+
+  // --- 2. Reverse DNS PTR lookup ---
+  dns_ptr_lookup(ip, result->hostname, sizeof(result->hostname), dns_timeout_ms);
+  
+  #ifdef DEBUG_ARP_SCAN
+  Serial.printf("[arp_scan_ip_with_name] %s  mac=%02X:%02X:%02X:%02X:%02X:%02X  host=%s\n",
+                ip.toString().c_str(),
+                result->mac[0], result->mac[1], result->mac[2],
+                result->mac[3], result->mac[4], result->mac[5],
+                result->hostname[0] ? result->hostname : "(unresolved)");
+  #endif
+  return true;
+
+#else
+  (void)ip;
+  (void)result;
+  (void)arp_timeout_ms;
+  (void)dns_timeout_ms;
+  Serial.println("[arp_scan_ip_with_name] not supported on LTE");
+  return false;
+#endif
 }
 
 /*
