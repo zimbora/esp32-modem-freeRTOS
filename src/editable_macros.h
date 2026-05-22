@@ -56,7 +56,7 @@
 #define MQTT_TOPIC_LEN                  75
 #endif
 #ifndef MQTT_TX_PAYLOAD_LEN
-#define MQTT_TX_PAYLOAD_LEN             1024
+#define MQTT_TX_PAYLOAD_LEN             512
 #endif
 #ifndef MQTT_RX_PAYLOAD_LEN
 #define MQTT_RX_PAYLOAD_LEN             1024
