@@ -1,0 +1,18 @@
+on:
+  push:
+    tags:
+      - '*'
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check library.properties version matches tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION=$(grep '^version=' library.properties | cut -d= -f2)
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "ERROR: library.properties version ($VERSION) does not match tag ($TAG)"
+            exit 1
+          fi
+          echo "OK: library.properties version ($VERSION) matches tag ($TAG)"
