@@ -89,6 +89,7 @@
 [uint8_t arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t timeout_ms)](#ARP-scan)
 [bool arp_scan_ip(IPAddress ip, ARP_HOST* result, uint32_t timeout_ms)](#ARP-scan-ip)
 [uint8_t arp_scan_with_names(NETWORK_HOST* results, uint8_t maxResults, uint32_t arp_timeout_ms, uint32_t dns_timeout_ms)](#ARP-scan-with-names)
+[bool arp_scan_ip_with_name(IPAddress ip, NETWORK_HOST* result, uint32_t arp_timeout_ms, uint32_t dns_timeout_ms)](#ARP-scan-ip-with-name)
 
 ## Examples
   Run programs inside examples folder to check how it works
@@ -362,3 +363,35 @@ for (uint8_t i = 0; i < n; i++) {
 | `ip`       | `IPAddress` | IPv4 address                                     |
 | `mac`      | `uint8_t[6]`| MAC address                                      |
 | `hostname` | `char[64]`  | Device name from router DNS; empty if unresolved |
+
+---
+
+### ARP scan ip with name
+
+Sends a single ARP request for the given IP address and, if a reply is received, performs a reverse DNS (PTR) lookup to retrieve the device hostname. Useful when you already know the IP and just want its MAC and name.
+
+```
+* @ip             - target IPv4 address
+* @result         - caller-allocated NETWORK_HOST to fill
+* @arp_timeout_ms - milliseconds to wait for the ARP reply (default 2000)
+* @dns_timeout_ms - milliseconds for the reverse DNS query (default 1000)
+*
+* Returns true if the MAC was resolved.
+* hostname is an empty string if the router did not have a PTR record for that IP.
+```
+```cpp
+bool arp_scan_ip_with_name(IPAddress ip, NETWORK_HOST* result,
+                            uint32_t arp_timeout_ms = 2000,
+                            uint32_t dns_timeout_ms = 1000);
+```
+Example:
+```cpp
+NETWORK_HOST host;
+if (mRTOS.arp_scan_ip_with_name(IPAddress(192, 168, 1, 1), &host)) {
+    Serial.printf("IP: %s  MAC: %02X:%02X:%02X:%02X:%02X:%02X  Name: %s\n",
+        host.ip.toString().c_str(),
+        host.mac[0], host.mac[1], host.mac[2],
+        host.mac[3], host.mac[4], host.mac[5],
+        host.hostname[0] ? host.hostname : "(unresolved)");
+}
+```

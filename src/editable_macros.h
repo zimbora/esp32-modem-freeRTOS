@@ -64,5 +64,5 @@
 
 // Maximum number of hosts returned by arp_scan()
 #ifndef ARP_SCAN_MAX_HOSTS
-#define ARP_SCAN_MAX_HOSTS              20
+#define ARP_SCAN_MAX_HOSTS              32
 #endif
