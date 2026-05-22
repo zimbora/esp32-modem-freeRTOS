@@ -7,16 +7,8 @@
 #include <lwip/netif.h>
 #include <lwip/tcpip.h>   // LOCK_TCPIP_CORE / UNLOCK_TCPIP_CORE
 #include <WiFiUdp.h>      // raw DNS PTR query for reverse hostname lookup
+#include <ESPmDNS.h>
 #endif
-
-#define MQTT_RX_QUEUE_SIZE 10
-#define MQTT_TX_QUEUE_SIZE 20
-
-#define TCP_RX_QUEUE_SIZE 2
-#define TCP_TX_QUEUE_SIZE 2
-
-#define HTTP_RX_QUEUE_SIZE 1 // !! do not change it
-#define HTTP_TX_QUEUE_SIZE 1 // !! do not change it
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;
@@ -1872,11 +1864,13 @@ uint8_t MODEMfreeRTOS::arp_scan(ARP_HOST* results, uint8_t maxResults, uint32_t 
     etharp_request(netif, &target);
     UNLOCK_TCPIP_CORE();
 
-    delay(2); // ~2 ms between probes to avoid flooding
+    vTaskDelay(pdMS_TO_TICKS(2)); // ~2 ms between probes; suspends task so IDLE can run
   }
 
-  // --- 2. Wait for replies ---
-  delay(timeout_ms);
+  // --- 2. Wait for replies (in 50 ms chunks; vTaskDelay guarantees IDLE runs) ---
+  for (uint32_t elapsed = 0; elapsed < timeout_ms; elapsed += 50) {
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
 
   // --- 3. Harvest the ARP cache ---
   uint8_t count = 0;
@@ -1970,8 +1964,10 @@ bool MODEMfreeRTOS::arp_scan_ip(IPAddress ip, ARP_HOST* result, uint32_t timeout
   etharp_request(netif, &target);
   UNLOCK_TCPIP_CORE();
 
-  // --- 2. Wait for the reply ---
-  delay(timeout_ms);
+  // --- 2. Wait for the reply (chunked so IDLE task can run) ---
+  for (uint32_t elapsed = 0; elapsed < timeout_ms; elapsed += 50) {
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
 
   // --- 3. Check the ARP cache ---
   struct eth_addr  *eth_ret = nullptr;
@@ -2130,7 +2126,7 @@ static bool dns_ptr_lookup(IPAddress ip, char* out, size_t outLen, uint32_t time
       }
       return false;
     }
-    delay(10);
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
   udp.stop();
   return false;
@@ -2138,7 +2134,7 @@ static bool dns_ptr_lookup(IPAddress ip, char* out, size_t outLen, uint32_t time
 #endif
 
 /*
-* ARP scan with reverse DNS hostname resolution – WiFi only.
+* ARP scan with reverse DNS hostname resolution - WiFi only.
 *
 * Performs a full ARP sweep of the local subnet (same as arp_scan), then
 * for each live host attempts a reverse DNS (PTR) lookup via gethostbyaddr().
@@ -2168,13 +2164,15 @@ uint8_t MODEMfreeRTOS::arp_scan_with_names(NETWORK_HOST* results, uint8_t maxRes
                            arp_timeout_ms);
 
   // --- 2. Reverse DNS for each host ---
+  // dns_timeout_ms is capped to 500 ms per host to avoid watchdog resets
+  uint32_t dns_to = (dns_timeout_ms > 500) ? 500 : dns_timeout_ms;
   for (uint8_t i = 0; i < count; i++) {
     results[i].ip = arp_results[i].ip;
     memcpy(results[i].mac, arp_results[i].mac, 6);
     results[i].hostname[0] = '\0';
 
     dns_ptr_lookup(arp_results[i].ip, results[i].hostname,
-                   sizeof(results[i].hostname), dns_timeout_ms);
+                   sizeof(results[i].hostname), dns_to);
 
     #ifdef DEBUG_ARP_SCAN
     Serial.printf("[arp_scan_with_names] %s  ->  %s\n",

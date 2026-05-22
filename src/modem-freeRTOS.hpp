@@ -24,10 +24,15 @@
 #define MQTT_TOPIC_LEN 75
 #endif
 #ifndef MQTT_TX_PAYLOAD_LEN
-#define MQTT_TX_PAYLOAD_LEN 255
+#define MQTT_TX_PAYLOAD_LEN 2048
 #endif
 #ifndef MQTT_RX_PAYLOAD_LEN
 #define MQTT_RX_PAYLOAD_LEN 2048
+#endif
+
+// Maximum number of hosts returned by arp_scan()
+#ifndef ARP_SCAN_MAX_HOSTS
+#define ARP_SCAN_MAX_HOSTS 5
 #endif
 
 struct HTTP_HEADER_MSG {
@@ -87,11 +92,6 @@ struct MQTT_MSG_RX {
   uint8_t retain;
   uint8_t clientID;
 };
-
-// Maximum number of hosts returned by arp_scan()
-#ifndef ARP_SCAN_MAX_HOSTS
-#define ARP_SCAN_MAX_HOSTS 32
-#endif
 
 struct ARP_HOST {
   IPAddress ip;
