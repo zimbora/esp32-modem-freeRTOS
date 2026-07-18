@@ -63,6 +63,7 @@ int16_t rssi = -1;
 String mac_address = "";
 uint32_t retry_counter = 1;
 uint32_t connect_retry = 0;
+uint32_t next_wifi_reconnect_attempt = 0;
 
 void (*tcpOnConnect)(uint8_t clientID);
 void (*mqttOnConnect)(uint8_t clientID);
@@ -169,14 +170,19 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
 */
 void MODEMfreeRTOS::loop(){
 
+  //retry_counter
   #ifndef ENABLE_LTE
-  if(!isWifiConnected()){
-    if(connect_retry < millis() && connect_retry != 0){
-      // device is offline for too long, restart it
-      WiFi.reconnect();
+    if(!isWifiConnected()){
+      wl_status_t status = WiFi.status();
+      bool wifiConnecting = (status == WL_IDLE_STATUS);
+      if(connect_retry < millis() && connect_retry != 0 && !wifiConnecting && next_wifi_reconnect_attempt < millis()){
+        // device is offline for too long, restart it
+        WiFi.reconnect();
+        next_wifi_reconnect_attempt = millis() + 5000;
+      }
     }
-  }
   #endif
+
 
   // WIFI
   #ifndef ENABLE_LTE
