@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.11 - released
+	perf: check if wifi is not connecting before new attempt
+	perf: avoid repeated callbacks to WiFiEvent
+
 ## 1.0.10 - released
 	feat: supports arp reverse scan (scan with hostname)
 	feat: supports arp scan for a specific IP
