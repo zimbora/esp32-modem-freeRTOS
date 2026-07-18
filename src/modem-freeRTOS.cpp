@@ -50,6 +50,8 @@ MODEMBGXX modem;
 EspMQTTClient mqtt1;
 EspMQTTClient mqtt2;
 
+static bool wifi_event_registered = false;
+
 #endif
 
 // private vars
@@ -108,7 +110,10 @@ void MODEMfreeRTOS::init(const char* ssid, const char* password){
   mqtt2.enableDebuggingMessages();
   #endif
   WiFi.disconnect(true);
-  WiFi.onEvent(WiFiEvent);
+  if(!wifi_event_registered){
+    WiFi.onEvent(WiFiEvent);
+    wifi_event_registered = true;
+  }
   WiFi.begin(ssid, password);
   #endif
 
@@ -315,7 +320,10 @@ void MODEMfreeRTOS::wifiReconnect(const char* ssid, const char* password){
 
   Serial.printf("wifi reconnect: ssid: %s \n",ssid);
   WiFi.disconnect(true);
-  WiFi.onEvent(WiFiEvent);
+  if(!wifi_event_registered){
+    WiFi.onEvent(WiFiEvent);
+    wifi_event_registered = true;
+  }
   WiFi.begin(ssid, password);
 
 }
