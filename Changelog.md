@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.12 - release
+	Fix: MQTT queue race conditions (#8)
+	
 ## 1.0.11 - released
 	perf: check if wifi is not connecting before new attempt
 	perf: avoid repeated callbacks to WiFiEvent
