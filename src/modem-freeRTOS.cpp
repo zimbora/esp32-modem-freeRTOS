@@ -81,7 +81,7 @@ void MODEMfreeRTOS::init(const char* ssid, const char* password){
   Serial.println("Initing mRTOS..");
 
   mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG_RX * ) );
-  mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG_TX * ) );
+  mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG_TX ) );
 
   tcpRxQueue = xQueueCreate( TCP_RX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
   tcpTxQueue = xQueueCreate( TCP_TX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
@@ -132,7 +132,7 @@ void MODEMfreeRTOS::init(uint16_t cops, uint8_t mode, uint8_t pwkey){
   Serial.println("Initing mRTOS..");
   
   mqttRxQueue = xQueueCreate( MQTT_RX_QUEUE_SIZE, sizeof( struct MQTT_MSG_RX * ) );
-  mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG_TX * ) );
+  mqttTxQueue = xQueueCreate( MQTT_TX_QUEUE_SIZE, sizeof( struct MQTT_MSG_TX ) );
 
   tcpRxQueue = xQueueCreate( TCP_RX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
   tcpTxQueue = xQueueCreate( TCP_TX_QUEUE_SIZE, sizeof( struct TCP_MSG * ) );
@@ -1699,38 +1699,34 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
   if(qos == 0 && !mqtt_connected())
     return false;
   */
-  struct MQTT_MSG_TX *pxMessage;
 
-  if( mqttTxQueue != 0 && uxQueueSpacesAvailable(mqttTxQueue) > 0){
-     // Send a pointer to a struct AMessage object.  Don't block if the
-     // queue is already full.
-
-    if(!xSemaphoreTake( mqttTxQueueMutex, 2000)){
-     xSemaphoreGive(mqttTxQueueMutex);
-     Serial.println("Couldn't get mqttTxQueueMutex");
-     return false;
-    }
-
-    pxMessage = &tx_mqtt_msg[uxQueueMessagesWaiting(mqttTxQueue)];
-    memset(pxMessage->topic,0,sizeof(pxMessage->topic));
-    memset(pxMessage->data,0,sizeof(pxMessage->data));
-
-    String topic_ = mqtt[clientID].prefix+topic;
-    memcpy(pxMessage->topic,topic_.c_str(),topic_.length());
-    memcpy(pxMessage->data,message.c_str(),message.length());
-    pxMessage->qos = qos;
-    pxMessage->retain = retain;
-    pxMessage->clientID = clientID;
-
-    bool res = xQueueSendToBack( mqttTxQueue, ( void * ) &pxMessage, ( TickType_t ) 0 ) == true;
+  if(!xSemaphoreTake( mqttTxQueueMutex, 2000)){
     xSemaphoreGive(mqttTxQueueMutex);
-    return res;
+    Serial.println("Couldn't get mqttTxQueueMutex");
+    return false;
   }
 
-  Serial.println("Queue is full!!");
-  Serial.println("clientId: "+String(clientID)+ " topic: "+topic);
+  if( mqttTxQueue == 0 || uxQueueSpacesAvailable(mqttTxQueue) <= 0){
+    xSemaphoreGive(mqttTxQueueMutex);
+    Serial.println("Queue is full!!");
+    Serial.println("clientId: "+String(clientID)+ " topic: "+topic);
+    return false;
+  }
 
-  return false;
+  MQTT_MSG_TX txMsg;
+  memset(txMsg.topic,0,sizeof(txMsg.topic));
+  memset(txMsg.data,0,sizeof(txMsg.data));
+
+  String topic_ = mqtt[clientID].prefix + topic;
+  memcpy(txMsg.topic, topic_.c_str(), min((size_t)sizeof(txMsg.topic)-1, topic_.length()));
+  memcpy(txMsg.data, message.c_str(), min((size_t)sizeof(txMsg.data)-1, message.length()));
+  txMsg.qos = qos;
+  txMsg.retain = retain;
+  txMsg.clientID = clientID;
+
+  bool res = xQueueSendToBack( mqttTxQueue, ( void * ) &txMsg, ( TickType_t ) 0 ) == pdTRUE;
+  xSemaphoreGive(mqttTxQueueMutex);
+  return res;
 
 }
 
@@ -1741,7 +1737,7 @@ bool MODEMfreeRTOS::mqtt_pushMessage(uint8_t clientID, const String& topic, cons
 */
 void MODEMfreeRTOS::mqtt_sendMessage(){
 
-  struct MQTT_MSG_TX *pxMessage;
+  MQTT_MSG_TX pxMessage;
 
   if(!xSemaphoreTake( mqttTxQueueMutex, 200)){
     return;
@@ -1751,17 +1747,14 @@ void MODEMfreeRTOS::mqtt_sendMessage(){
     // get a message on the created queue.  Block for 10 ticks if a
     // message is not immediately available.
 
-    //if( xQueueReceive( mqttTxQueue, &( pxRxedMessage ), ( TickType_t ) 10 ) ){
     if( xQueueReceive( mqttTxQueue, &( pxMessage ), ( TickType_t ) 10 ) ){
-      // pcRxedMessage now points to the struct AMessage variable posted
-      // by vATask, but the item still remains on the queue.
-      String topic = String(pxMessage->topic);
-      String data = String(pxMessage->data);
-      uint8_t qos = pxMessage->qos;
-      uint8_t retain = pxMessage->retain;
-      uint8_t clientID = pxMessage->clientID;
-
       xSemaphoreGive(mqttTxQueueMutex);
+
+      String topic = String(pxMessage.topic);
+      String data = String(pxMessage.data);
+      uint8_t qos = pxMessage.qos;
+      uint8_t retain = pxMessage.retain;
+      uint8_t clientID = pxMessage.clientID;
 
       if(clientID >= MAX_MQTT_CONNECTIONS){
         Serial.println("invalid mqtt clientID");
@@ -1801,8 +1794,8 @@ void MODEMfreeRTOS::mqtt_sendMessage(){
           }
         }
       #endif
+      return;
     }
-
   }
   xSemaphoreGive(mqttTxQueueMutex);
 }
