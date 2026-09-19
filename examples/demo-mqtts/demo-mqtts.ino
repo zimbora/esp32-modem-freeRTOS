@@ -17,11 +17,18 @@ MODEMfreeRTOS mRTOS;
 WiFiClientSecure secureClient;
 PubSubClient mqttClient(secureClient);
 
-String mqtt_prefix = "";
 uint32_t last_publish_at = 0;
 uint32_t last_reconnect_attempt_at = 0;
 bool tls_configured = false;
 bool tls_configuration_failed = false;
+
+char mqtt_client_name[64] = {0};
+char mqtt_prefix[128] = {0};
+char mqtt_subscribe_topic[160] = {0};
+char mqtt_will_topic[160] = {0};
+char mqtt_status_topic[160] = {0};
+char mqtt_heap_free_topic[160] = {0};
+char mqtt_uptime_topic[160] = {0};
 
 const char* MQTTS_CA_CERT = R"EOF(
 -----BEGIN CERTIFICATE-----
@@ -34,6 +41,32 @@ const char* MQTTS_CLIENT_KEY = "";
 
 bool has_ca_certificate(){
   return strlen(MQTTS_CA_CERT) > 0 && strstr(MQTTS_CA_CERT, "YOUR_CA_CERTIFICATE_HERE") == NULL;
+}
+
+bool build_topic(char* topic, size_t topic_size, const char* subtopic){
+  int written = snprintf(topic, topic_size, "%s/%s", mqtt_prefix, subtopic);
+  return written > 0 && (size_t)written < topic_size;
+}
+
+bool configure_topics(){
+  String mac_address = mRTOS.macAddress();
+
+  int written = snprintf(mqtt_client_name, sizeof(mqtt_client_name), "%s%s", MQTTS_UID_PREFIX, mac_address.c_str());
+  if(written <= 0 || (size_t)written >= sizeof(mqtt_client_name)){
+    return false;
+  }
+
+  written = snprintf(mqtt_prefix, sizeof(mqtt_prefix), "%s/%s", MQTTS_PROJECT, mqtt_client_name);
+  if(written <= 0 || (size_t)written >= sizeof(mqtt_prefix)){
+    return false;
+  }
+
+  return
+    build_topic(mqtt_subscribe_topic, sizeof(mqtt_subscribe_topic), "#") &&
+    build_topic(mqtt_will_topic, sizeof(mqtt_will_topic), MQTTS_WILL_SUBTOPIC) &&
+    build_topic(mqtt_status_topic, sizeof(mqtt_status_topic), "status") &&
+    build_topic(mqtt_heap_free_topic, sizeof(mqtt_heap_free_topic), "heapFree") &&
+    build_topic(mqtt_uptime_topic, sizeof(mqtt_uptime_topic), "uptime");
 }
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length){
@@ -50,30 +83,26 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length){
 }
 
 void mqtt_subscribe_topics(){
-  String topic = mqtt_prefix + "/#";
-  mqttClient.subscribe(topic.c_str());
-  Serial.println("subscribed to " + topic);
+  mqttClient.subscribe(mqtt_subscribe_topic);
+  Serial.printf("subscribed to %s\n", mqtt_subscribe_topic);
 }
 
 bool mqtt_connect(){
-  String client_name = String(MQTTS_UID_PREFIX) + mRTOS.macAddress();
-  String will_topic = mqtt_prefix + "/" + String(MQTTS_WILL_SUBTOPIC);
-
   bool connected = false;
   if(strlen(MQTTS_USER) == 0){
     connected = mqttClient.connect(
-      client_name.c_str(),
-      will_topic.c_str(),
+      mqtt_client_name,
+      mqtt_will_topic,
       1,
       true,
       MQTTS_WILL_PAYLOAD
     );
   }else{
     connected = mqttClient.connect(
-      client_name.c_str(),
+      mqtt_client_name,
       MQTTS_USER,
       MQTTS_PASSWORD,
-      will_topic.c_str(),
+      mqtt_will_topic,
       1,
       true,
       MQTTS_WILL_PAYLOAD
@@ -88,13 +117,11 @@ bool mqtt_connect(){
   Serial.println("mqtts is connected - sending first message");
   last_reconnect_attempt_at = 0;
   mqtt_subscribe_topics();
-  mqttClient.publish((mqtt_prefix + "/status").c_str(), "online", true);
+  mqttClient.publish(mqtt_status_topic, "online", true);
   return true;
 }
 
 bool configure_tls(){
-  secureClient.setHandshakeTimeout(30);
-
 #if defined(MQTTS_TLS_INSECURE) && MQTTS_TLS_INSECURE
   secureClient.setInsecure();
   Serial.println("using insecure tls mode");
@@ -158,7 +185,13 @@ void loop() {
   }
 
   if(!tls_configured){
-    mqtt_prefix = String(MQTTS_PROJECT) + "/" + String(MQTTS_UID_PREFIX) + mRTOS.macAddress();
+    if(!configure_topics()){
+      Serial.println("failed to configure mqtt topic buffers");
+      tls_configuration_failed = true;
+      delay(1000);
+      return;
+    }
+
     if(!configure_tls()){
       delay(1000);
       return;
@@ -179,10 +212,12 @@ void loop() {
 
   uint32_t now = millis();
   if(last_publish_at == 0 || (uint32_t)(now - last_publish_at) >= 1000){
-    String heap_free = String(ESP.getFreeHeap() / 1024);
-    String uptime = String(millis());
-    mqttClient.publish((mqtt_prefix + "/heapFree").c_str(), heap_free.c_str(), true);
-    mqttClient.publish((mqtt_prefix + "/uptime").c_str(), uptime.c_str(), true);
+    char heap_free[16];
+    char uptime[16];
+    snprintf(heap_free, sizeof(heap_free), "%lu", ESP.getFreeHeap() / 1024);
+    snprintf(uptime, sizeof(uptime), "%lu", millis());
+    mqttClient.publish(mqtt_heap_free_topic, heap_free, true);
+    mqttClient.publish(mqtt_uptime_topic, uptime, true);
     last_publish_at = now;
   }
 #endif
