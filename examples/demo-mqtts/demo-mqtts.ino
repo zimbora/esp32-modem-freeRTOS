@@ -224,7 +224,7 @@ void loop() {
     char heap_free[16];
     char uptime[16];
     snprintf(heap_free, sizeof(heap_free), "%lu", (unsigned long)(ESP.getFreeHeap() / 1024));
-    snprintf(uptime, sizeof(uptime), "%lu", (unsigned long)now);
+    snprintf(uptime, sizeof(uptime), "%lu", (unsigned long)(now / 1000UL));
 
     bool heap_published = mqttClient.publish(mqtt_heap_free_topic, heap_free, true);
     bool uptime_published = mqttClient.publish(mqtt_uptime_topic, uptime, true);
