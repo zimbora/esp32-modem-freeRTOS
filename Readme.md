@@ -14,6 +14,7 @@
 
 ## Build and flash helpers
   Install `arduino-cli` to compile examples and `esptool` (either the `esptool` or `esptool.py` CLI) to flash merged firmware images.
+  Run the commands below from the repository root.
 
   Make the helper scripts executable after cloning:
 ```
