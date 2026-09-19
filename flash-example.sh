@@ -48,4 +48,4 @@ echo "Step 1/2: Erasing flash..."
 esptool --port "${port}" erase_flash
 
 echo "Step 2/2: Writing firmware '${filename}' to ${flash_offset} at ${flash_baud} baud..."
-esptool --port "${port}" --baud "${flash_baud}" write-flash "${flash_offset}" "${filename}"
+esptool --port "${port}" --baud "${flash_baud}" write_flash "${flash_offset}" "${filename}"
