@@ -12,6 +12,7 @@ Environment variables:
   BUILD_DIR     Build output directory root (default: ./build)
   FLASH_BAUD    Flash baud rate (default: 460800)
   FLASH_OFFSET  Flash offset (default: 0x0)
+  ESPTOOL_CHIP  Chip target passed to esptool (default: esp32c5)
   ESPTOOL_SUDO  Set to 1 to run esptool through sudo
 EOF
 }
@@ -32,6 +33,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 build_root="${BUILD_DIR:-${script_dir}/build}"
 flash_baud="${FLASH_BAUD:-460800}"
 flash_offset="${FLASH_OFFSET:-0x0}"
+esptool_chip="${ESPTOOL_CHIP:-esp32c5}"
 filename="${build_root}/${example}/${example}.ino.merged.bin"
 
 if command -v esptool >/dev/null 2>&1; then
@@ -60,7 +62,7 @@ if [[ ! -f "${filename}" ]]; then
 fi
 
 echo "Step 1/2: Erasing flash..."
-"${esptool_runner[@]}" --port "${port}" erase_flash
+"${esptool_runner[@]}" --chip "${esptool_chip}" --port "${port}" erase_flash
 
 echo "Step 2/2: Writing firmware '${filename}' to ${flash_offset} at ${flash_baud} baud..."
-"${esptool_runner[@]}" --port "${port}" --baud "${flash_baud}" write_flash "${flash_offset}" "${filename}"
+"${esptool_runner[@]}" --chip "${esptool_chip}" --port "${port}" --baud "${flash_baud}" write_flash "${flash_offset}" "${filename}"

@@ -43,6 +43,7 @@
   - `BUILD_DIR` (default: `./build`)
   - `FLASH_BAUD` (default: `460800`)
   - `FLASH_OFFSET` (default: `0x0`)
+  - `ESPTOOL_CHIP` (default: `esp32c5`)
   - `ESPTOOL_SUDO` (set to `1` to run esptool with `sudo`)
 
 ## Examples
