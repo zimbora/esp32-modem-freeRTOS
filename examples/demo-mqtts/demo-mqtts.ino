@@ -4,6 +4,10 @@
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
 
+#ifdef ENABLE_LTE
+#error "demo-mqtts only supports WiFi mode. Disable ENABLE_LTE in editable_macros.h."
+#endif
+
 /*
 * Edit editable_macros file in src path to change between WiFi and LTE
 * This example uses MODEMfreeRTOS to manage WiFi connectivity and shows how to
@@ -65,7 +69,7 @@ bool configure_topics(){
     build_topic(mqtt_subscribe_topic, sizeof(mqtt_subscribe_topic), "#") &&
     build_topic(mqtt_will_topic, sizeof(mqtt_will_topic), MQTTS_WILL_SUBTOPIC) &&
     build_topic(mqtt_status_topic, sizeof(mqtt_status_topic), "status") &&
-    build_topic(mqtt_heap_free_topic, sizeof(mqtt_heap_free_topic), "heapFree") &&
+    build_topic(mqtt_heap_free_topic, sizeof(mqtt_heap_free_topic), "heapFreeKiB") &&
     build_topic(mqtt_uptime_topic, sizeof(mqtt_uptime_topic), "uptime");
 }
 
@@ -168,19 +172,10 @@ bool configure_tls(){
 
 void setup() {
   Serial.begin(115200);
-
-#ifdef ENABLE_LTE
-  Serial.println("demo-mqtts currently supports WiFi mode only. Disable ENABLE_LTE to use this example.");
-#else
   mRTOS.init(WIFI_SSID, WIFI_PASSWORD);
-#endif
 }
 
 void loop() {
-#ifdef ENABLE_LTE
-  delay(1000);
-  return;
-#else
   mRTOS.loop();
 
   if(!mRTOS.isWifiConnected()){
@@ -234,5 +229,4 @@ void loop() {
       Serial.println("failed to publish telemetry");
     }
   }
-#endif
 }

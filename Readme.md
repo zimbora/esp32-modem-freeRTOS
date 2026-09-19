@@ -135,7 +135,7 @@
 ### demo-mqtts
   Uses MODEMfreeRTOS for WiFi connectivity and `WiFiClientSecure` + `PubSubClient`
   to connect to a broker over TLS. Supports both CA-certificate validation and
-  insecure TLS mode for testing. WiFi only; it prints a message and exits when
+  insecure TLS mode for testing. WiFi only; it fails to compile when
   `ENABLE_LTE` is enabled.
 
 ### demo-arp-scan
