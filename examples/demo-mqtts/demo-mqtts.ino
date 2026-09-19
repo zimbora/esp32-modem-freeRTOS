@@ -93,7 +93,7 @@ bool mqtt_connect(){
 }
 
 bool configure_tls(){
-  secureClient.setHandshakeTimeout(30000);
+  secureClient.setHandshakeTimeout(30);
 
 #if defined(MQTTS_TLS_INSECURE) && MQTTS_TLS_INSECURE
   secureClient.setInsecure();

@@ -5,7 +5,7 @@
   - WiFi.h v1.2.7
   - HTTPClient v2.2.0
   - EspMQTTClient.h v1.13.3
-  - PubSubClient
+  - PubSubClient v2.8
   - TimeLib v1.6.1
   - esp32-BG95 v1.0.5
 
