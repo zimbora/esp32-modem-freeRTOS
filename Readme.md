@@ -15,6 +15,11 @@
 ## Build and flash helpers
   Install `arduino-cli` to compile examples and `esptool` (either the `esptool` or `esptool.py` CLI) to flash merged firmware images.
 
+  Make the helper scripts executable after cloning:
+```
+  chmod +x ./build-example.sh ./flash-example.sh
+```
+
   Build an example sketch:
 ```
   ./build-example.sh demo-arp-scan
@@ -25,6 +30,11 @@
   ./flash-example.sh demo-arp-scan /dev/cu.usbmodem1101
 ```
 
+  If your serial device requires elevated permissions, run:
+```
+  ESPTOOL_SUDO=1 ./flash-example.sh demo-arp-scan /dev/cu.usbmodem1101
+```
+
   Optional environment variables:
   - `BOARD_FQBN` (default: `esp32:esp32:esp32c5`)
   - `BUILD_PARTITIONS` (default: `min_spiffs`)
@@ -32,6 +42,7 @@
   - `BUILD_DIR` (default: `./build`)
   - `FLASH_BAUD` (default: `460800`)
   - `FLASH_OFFSET` (default: `0x0`)
+  - `ESPTOOL_SUDO` (set to `1` to run esptool with `sudo`)
 
 ## Examples
 

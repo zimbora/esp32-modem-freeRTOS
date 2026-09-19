@@ -12,6 +12,7 @@ Environment variables:
   BUILD_DIR     Build output directory root (default: ./build)
   FLASH_BAUD    Flash baud rate (default: 460800)
   FLASH_OFFSET  Flash offset (default: 0x0)
+  ESPTOOL_SUDO  Set to 1 to run esptool through sudo
 EOF
 }
 
@@ -34,12 +35,22 @@ flash_offset="${FLASH_OFFSET:-0x0}"
 filename="${build_root}/${example}/${example}.ino.merged.bin"
 
 if command -v esptool >/dev/null 2>&1; then
-  esptool_cmd="esptool"
+  esptool_cmd="$(command -v esptool)"
 elif command -v esptool.py >/dev/null 2>&1; then
-  esptool_cmd="esptool.py"
+  esptool_cmd="$(command -v esptool.py)"
 else
   echo "Error: esptool is not installed or not available in PATH (expected 'esptool' or 'esptool.py')." >&2
   exit 1
+fi
+
+if [[ "${ESPTOOL_SUDO:-0}" == "1" ]]; then
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "Error: sudo is required when ESPTOOL_SUDO=1." >&2
+    exit 1
+  fi
+  esptool_runner=(sudo "${esptool_cmd}")
+else
+  esptool_runner=("${esptool_cmd}")
 fi
 
 if [[ ! -f "${filename}" ]]; then
@@ -49,7 +60,7 @@ if [[ ! -f "${filename}" ]]; then
 fi
 
 echo "Step 1/2: Erasing flash..."
-"${esptool_cmd}" --port "${port}" erase_flash
+"${esptool_runner[@]}" --port "${port}" erase_flash
 
 echo "Step 2/2: Writing firmware '${filename}' to ${flash_offset} at ${flash_baud} baud..."
-"${esptool_cmd}" --port "${port}" --baud "${flash_baud}" write_flash "${flash_offset}" "${filename}"
+"${esptool_runner[@]}" --port "${port}" --baud "${flash_baud}" write_flash "${flash_offset}" "${filename}"
