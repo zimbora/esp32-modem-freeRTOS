@@ -55,11 +55,6 @@ else
   esptool_runner=("${esptool_cmd}")
 fi
 
-if ! "${esptool_cmd}" --help 2>&1 | grep -q "${esptool_chip}"; then
-  echo "Error: ${esptool_cmd} does not advertise support for chip '${esptool_chip}'. Please install a newer esptool release or override ESPTOOL_CHIP." >&2
-  exit 1
-fi
-
 if [[ ! -f "${filename}" ]]; then
   echo "Error: firmware image not found: ${filename}" >&2
   echo "Build it first with ./build-example.sh ${example}" >&2

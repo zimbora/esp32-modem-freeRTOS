@@ -15,7 +15,10 @@
 ## Build and flash helpers
   Install `arduino-cli` to compile examples and `esptool` (either the `esptool` or `esptool.py` CLI) to flash merged firmware images.
   Run the commands below from the repository root.
-  Use an `esptool` release that supports the selected `ESPTOOL_CHIP` (default: `esp32c5`).
+  Install the ESP32 Arduino core for `arduino-cli` before building:
+```
+  arduino-cli core install esp32:esp32
+```
 
   Make the helper scripts executable after cloning:
 ```

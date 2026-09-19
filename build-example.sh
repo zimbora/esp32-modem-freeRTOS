@@ -48,16 +48,10 @@ build_path="${build_root}/${example}"
 
 echo "Step 1/1: Building '${example}' for '${board_fqbn}'..."
 
-if ! output="$(
-  arduino-cli compile -b "${board_fqbn}" \
-    --build-property "build.partitions=${build_partitions}" \
-    --build-property "upload.maximum_size=${upload_maximum_size}" \
-    --build-path "${build_path}" \
-    "${sketch}" 2>&1
-)"; then
-  echo "${output}" >&2
-  exit 1
-fi
+arduino-cli compile -b "${board_fqbn}" \
+  --build-property "build.partitions=${build_partitions}" \
+  --build-property "upload.maximum_size=${upload_maximum_size}" \
+  --build-path "${build_path}" \
+  "${sketch}"
 
-echo "${output}"
 echo "Build output: ${build_path}"
