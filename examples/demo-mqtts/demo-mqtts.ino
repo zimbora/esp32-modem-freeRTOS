@@ -81,6 +81,7 @@ bool mqtt_connect(){
   }
 
   Serial.println("mqtts is connected - sending first message");
+  last_reconnect_attempt_at = 0;
   mqtt_subscribe_topics();
   mqttClient.publish((mqtt_prefix + "/status").c_str(), "online", true);
   return true;

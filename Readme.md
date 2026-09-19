@@ -51,6 +51,7 @@
   #define MQTTS_WILL_PAYLOAD "offline"
   #define MQTTS_TLS_INSECURE 0
 ```
+  Keep WiFi and broker settings in `credentials.h`.
   Replace `MQTTS_CA_CERT` in `demo-mqtts.ino` with your broker CA certificate.
   Optional mutual-TLS credentials are also hardcoded there as `MQTTS_CLIENT_CERT`
   and `MQTTS_CLIENT_KEY`; leave them as empty strings when client-auth is not required.
