@@ -224,10 +224,15 @@ void loop() {
     char heap_free[16];
     char uptime[16];
     snprintf(heap_free, sizeof(heap_free), "%lu", (unsigned long)(ESP.getFreeHeap() / 1024));
-    snprintf(uptime, sizeof(uptime), "%lu", (unsigned long)millis());
-    mqttClient.publish(mqtt_heap_free_topic, heap_free, true);
-    mqttClient.publish(mqtt_uptime_topic, uptime, true);
-    last_publish_at = now;
+    snprintf(uptime, sizeof(uptime), "%lu", (unsigned long)now);
+
+    bool heap_published = mqttClient.publish(mqtt_heap_free_topic, heap_free, true);
+    bool uptime_published = mqttClient.publish(mqtt_uptime_topic, uptime, true);
+    if(heap_published && uptime_published){
+      last_publish_at = now;
+    }else{
+      Serial.println("failed to publish telemetry");
+    }
   }
 #endif
 }
