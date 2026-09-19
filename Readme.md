@@ -13,7 +13,7 @@
   Check examples folder to see examples. Each example imports a credentials.h file that is not present on this repository. You have to create it at your own
 
 ## Build and flash helpers
-  Install `arduino-cli` to compile examples and the `esptool` CLI to flash merged firmware images.
+  Install `arduino-cli` to compile examples and `esptool` (either the `esptool` or `esptool.py` CLI) to flash merged firmware images.
 
   Build an example sketch:
 ```

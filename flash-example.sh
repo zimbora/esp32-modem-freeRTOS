@@ -33,8 +33,12 @@ flash_baud="${FLASH_BAUD:-460800}"
 flash_offset="${FLASH_OFFSET:-0x0}"
 filename="${build_root}/${example}/${example}.ino.merged.bin"
 
-if ! command -v esptool >/dev/null 2>&1; then
-  echo "Error: esptool is not installed or not available in PATH." >&2
+if command -v esptool >/dev/null 2>&1; then
+  esptool_cmd="esptool"
+elif command -v esptool.py >/dev/null 2>&1; then
+  esptool_cmd="esptool.py"
+else
+  echo "Error: esptool is not installed or not available in PATH (expected 'esptool' or 'esptool.py')." >&2
   exit 1
 fi
 
@@ -45,7 +49,7 @@ if [[ ! -f "${filename}" ]]; then
 fi
 
 echo "Step 1/2: Erasing flash..."
-esptool --port "${port}" erase_flash
+"${esptool_cmd}" --port "${port}" erase_flash
 
 echo "Step 2/2: Writing firmware '${filename}' to ${flash_offset} at ${flash_baud} baud..."
-esptool --port "${port}" --baud "${flash_baud}" write_flash "${flash_offset}" "${filename}"
+"${esptool_cmd}" --port "${port}" --baud "${flash_baud}" write_flash "${flash_offset}" "${filename}"
