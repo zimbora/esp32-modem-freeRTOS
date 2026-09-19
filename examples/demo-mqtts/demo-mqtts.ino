@@ -82,9 +82,14 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length){
   Serial.println();
 }
 
-void mqtt_subscribe_topics(){
-  mqttClient.subscribe(mqtt_subscribe_topic);
+bool mqtt_subscribe_topics(){
+  if(!mqttClient.subscribe(mqtt_subscribe_topic)){
+    Serial.printf("failed to subscribe to %s\n", mqtt_subscribe_topic);
+    return false;
+  }
+
   Serial.printf("subscribed to %s\n", mqtt_subscribe_topic);
+  return true;
 }
 
 bool mqtt_connect(){
@@ -115,9 +120,13 @@ bool mqtt_connect(){
   }
 
   Serial.println("mqtts is connected - sending first message");
+  if(!mqtt_subscribe_topics() || !mqttClient.publish(mqtt_status_topic, "online", true)){
+    Serial.println("failed to initialize mqtt topics");
+    mqttClient.disconnect();
+    return false;
+  }
+
   last_reconnect_attempt_at = 0;
-  mqtt_subscribe_topics();
-  mqttClient.publish(mqtt_status_topic, "online", true);
   return true;
 }
 
@@ -214,8 +223,8 @@ void loop() {
   if(last_publish_at == 0 || (uint32_t)(now - last_publish_at) >= 1000){
     char heap_free[16];
     char uptime[16];
-    snprintf(heap_free, sizeof(heap_free), "%lu", ESP.getFreeHeap() / 1024);
-    snprintf(uptime, sizeof(uptime), "%lu", millis());
+    snprintf(heap_free, sizeof(heap_free), "%lu", (unsigned long)(ESP.getFreeHeap() / 1024));
+    snprintf(uptime, sizeof(uptime), "%lu", (unsigned long)millis());
     mqttClient.publish(mqtt_heap_free_topic, heap_free, true);
     mqttClient.publish(mqtt_uptime_topic, uptime, true);
     last_publish_at = now;
