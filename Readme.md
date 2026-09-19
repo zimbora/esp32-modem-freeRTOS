@@ -12,6 +12,27 @@
   Edit editable_macros.h file to change macros according to your needs
   Check examples folder to see examples. Each example imports a credentials.h file that is not present on this repository. You have to create it at your own
 
+## Build and flash helpers
+  Install `arduino-cli` to compile examples and `esptool` to flash merged firmware images.
+
+  Build an example sketch:
+```
+  ./build-example.sh demo-arp-scan
+```
+
+  Flash the generated image:
+```
+  ./flash-example.sh demo-arp-scan /dev/cu.usbmodem1101
+```
+
+  Optional environment variables:
+  - `BOARD_FQBN` (default: `esp32:esp32:esp32c5`)
+  - `BUILD_PARTITIONS` (default: `min_spiffs`)
+  - `UPLOAD_MAXIMUM_SIZE` (default: `1966080`)
+  - `BUILD_DIR` (default: `./build`)
+  - `FLASH_BAUD` (default: `460800`)
+  - `FLASH_OFFSET` (default: `0x0`)
+
 ## Examples
 
 ### demo-mqtt
@@ -112,18 +133,11 @@
 
   build command
   ```
-  project=demo-arp-scan
-  arduino-cli compile -b esp32:esp32:esp32c5 \
-  --build-property build.partitions=min_spiffs \
-  --build-property upload.maximum_size=1966080 \
-  --build-path ./build/${project} ./examples/${project}/${project}.ino 2>&1
+  ./build-example.sh demo-arp-scan
   ```
   flash command
   ```
-  filename=./build/demo-arp-scan/demo-arp-scan.ino.merged.bin
-  port=/dev/cu.usbmodem1101
-  sudo esptool --port ${port} erase_flash 
-  sudo esptool --port ${port} --baud 460800 write_flash 0x0 ${filename}
+  ./flash-example.sh demo-arp-scan /dev/cu.usbmodem1101
   ```
 
 ### demo-arp-reverse
@@ -134,18 +148,11 @@
 
   build command
   ```
-  project=demo-arp-reverse
-  arduino-cli compile -b esp32:esp32:esp32c5 \
-  --build-property build.partitions=min_spiffs \
-  --build-property upload.maximum_size=1966080 \
-  --build-path ./build/${project} ./examples/${project}/${project}.ino 2>&1
+  ./build-example.sh demo-arp-reverse
   ```
   flash command
   ```
-  filename=./build/demo-arp-reverse/demo-arp-reverse.ino.merged.bin
-  port=/dev/cu.usbmodem1101
-  sudo esptool --port ${port} erase_flash
-  sudo esptool --port ${port} --baud 460800 write_flash 0x0 ${filename}
+  ./flash-example.sh demo-arp-reverse /dev/cu.usbmodem1101
   ```
 ## Unit Test with Arduino
   Not available for now
