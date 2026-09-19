@@ -5,6 +5,7 @@
   - WiFi.h v1.2.7
   - HTTPClient v2.2.0
   - EspMQTTClient.h v1.13.3
+  - PubSubClient
   - TimeLib v1.6.1
   - esp32-BG95 v1.0.5
 
@@ -33,6 +34,26 @@
   #define MQTT_WILL_PAYLOAD "offline"
 ```
 
+### demo-mqtts
+  Create the "credentials.h" file in demo-mqtts folder
+  Edit the file according to your setup
+```
+  #define WIFI_SSID "ssid"
+  #define WIFI_PASSWORD "password"
+
+  #define MQTTS_HOST "mqtt host"
+  #define MQTTS_PORT 8883
+  #define MQTTS_USER "device"
+  #define MQTTS_PASSWORD "device"
+  #define MQTTS_PROJECT "esp32/freeRTOS2"
+  #define MQTTS_UID_PREFIX "uid:"
+  #define MQTTS_WILL_SUBTOPIC "status"
+  #define MQTTS_WILL_PAYLOAD "offline"
+  #define MQTTS_TLS_INSECURE 0
+```
+  Certificates are hardcoded in `demo-mqtts.ino` as `const char*` variables.
+  Set `MQTTS_TLS_INSECURE` to `1` to skip certificate validation while testing.
+
 ## Important
   All topics start with the prefix
   :project/:uid/...
@@ -57,6 +78,7 @@
  - HTTP (WIFI/LTE)
  - HTTPS (WIFI/LTE)
  - MQTT (WIFI/LTE)
+ - MQTTS (WIFI)
  - TCP (LTE)
 
 ## Public Methods
@@ -106,6 +128,11 @@
   Two processes running simultaneously:
     - One process is controlling the modem, handling mqtt connection and executing requests
     - The other one is used to send and received requests to and from the first process
+
+### demo-mqtts
+  Uses MODEMfreeRTOS for WiFi connectivity and `WiFiClientSecure` + `PubSubClient`
+  to connect to a broker over TLS. Supports both CA-certificate validation and
+  insecure TLS mode for testing.
 
 ### demo-arp-scan
   Perform an active arp scan on network after registration
