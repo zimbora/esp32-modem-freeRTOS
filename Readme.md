@@ -51,7 +51,9 @@
   #define MQTTS_WILL_PAYLOAD "offline"
   #define MQTTS_TLS_INSECURE 0
 ```
-  Certificates are hardcoded in `demo-mqtts.ino` as `const char*` variables.
+  Replace `MQTTS_CA_CERT` in `demo-mqtts.ino` with your broker CA certificate.
+  Optional mutual-TLS credentials are also hardcoded there as `MQTTS_CLIENT_CERT`
+  and `MQTTS_CLIENT_KEY`; leave them as empty strings when client-auth is not required.
   Set `MQTTS_TLS_INSECURE` to `1` to skip certificate validation while testing.
 
 ## Important

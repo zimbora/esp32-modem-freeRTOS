@@ -18,9 +18,10 @@ WiFiClientSecure secureClient;
 PubSubClient mqttClient(secureClient);
 
 String mqtt_prefix = "";
-uint32_t publish_timeout = 0;
-uint32_t reconnect_timeout = 0;
+uint32_t last_publish_at = 0;
+uint32_t last_reconnect_attempt_at = 0;
 bool tls_configured = false;
+bool tls_configuration_failed = false;
 
 const char* MQTTS_CA_CERT = R"EOF(
 -----BEGIN CERTIFICATE-----
@@ -30,6 +31,10 @@ YOUR_CA_CERTIFICATE_HERE
 
 const char* MQTTS_CLIENT_CERT = "";
 const char* MQTTS_CLIENT_KEY = "";
+
+bool has_ca_certificate(){
+  return strlen(MQTTS_CA_CERT) > 0 && strstr(MQTTS_CA_CERT, "YOUR_CA_CERTIFICATE_HERE") == NULL;
+}
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length){
   Serial.printf("<< %s ", topic);
@@ -72,7 +77,6 @@ bool mqtt_connect(){
 
   if(!connected){
     Serial.printf("mqtt connection failed, rc=%d\n", mqttClient.state());
-    reconnect_timeout = millis() + 5000;
     return false;
   }
 
@@ -82,13 +86,19 @@ bool mqtt_connect(){
   return true;
 }
 
-void configure_tls(){
+bool configure_tls(){
   secureClient.setHandshakeTimeout(30);
 
 #if defined(MQTTS_TLS_INSECURE) && MQTTS_TLS_INSECURE
   secureClient.setInsecure();
   Serial.println("using insecure tls mode");
 #else
+  if(!has_ca_certificate()){
+    Serial.println("replace MQTTS_CA_CERT in demo-mqtts.ino or enable MQTTS_TLS_INSECURE for testing");
+    tls_configuration_failed = true;
+    return false;
+  }
+
   secureClient.setCACert(MQTTS_CA_CERT);
 
   if(strlen(MQTTS_CLIENT_CERT) > 0 && strlen(MQTTS_CLIENT_KEY) > 0){
@@ -103,6 +113,7 @@ void configure_tls(){
   mqttClient.setServer(MQTTS_HOST, MQTTS_PORT);
   mqttClient.setCallback(mqtt_callback);
   tls_configured = true;
+  return true;
 }
 
 void setup() {
@@ -127,13 +138,23 @@ void loop() {
     return;
   }
 
+  if(tls_configuration_failed){
+    delay(1000);
+    return;
+  }
+
   if(!tls_configured){
     mqtt_prefix = String(MQTTS_PROJECT) + "/" + String(MQTTS_UID_PREFIX) + mRTOS.macAddress();
-    configure_tls();
+    if(!configure_tls()){
+      delay(1000);
+      return;
+    }
   }
 
   if(!mqttClient.connected()){
-    if(reconnect_timeout < millis()){
+    uint32_t now = millis();
+    if(last_reconnect_attempt_at == 0 || (uint32_t)(now - last_reconnect_attempt_at) >= 5000){
+      last_reconnect_attempt_at = now;
       mqtt_connect();
     }
     delay(100);
@@ -142,12 +163,13 @@ void loop() {
 
   mqttClient.loop();
 
-  if(publish_timeout < millis()){
+  uint32_t now = millis();
+  if(last_publish_at == 0 || (uint32_t)(now - last_publish_at) >= 1000){
     String heap_free = String(ESP.getFreeHeap() / 1024);
     String uptime = String(millis());
     mqttClient.publish((mqtt_prefix + "/heapFree").c_str(), heap_free.c_str(), true);
     mqttClient.publish((mqtt_prefix + "/uptime").c_str(), uptime.c_str(), true);
-    publish_timeout = millis() + 1000;
+    last_publish_at = now;
   }
 #endif
 }
