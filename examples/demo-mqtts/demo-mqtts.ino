@@ -39,7 +39,12 @@ bool has_ca_certificate(){
 void mqtt_callback(char* topic, byte* payload, unsigned int length){
   Serial.printf("<< %s ", topic);
   for(unsigned int i = 0; i < length; i++){
-    Serial.print((char)payload[i]);
+    uint8_t current = payload[i];
+    if(current >= 32 && current <= 126){
+      Serial.print((char)current);
+    }else{
+      Serial.printf("\\x%02X", current);
+    }
   }
   Serial.println();
 }
@@ -88,7 +93,7 @@ bool mqtt_connect(){
 }
 
 bool configure_tls(){
-  secureClient.setHandshakeTimeout(30);
+  secureClient.setHandshakeTimeout(30000);
 
 #if defined(MQTTS_TLS_INSECURE) && MQTTS_TLS_INSECURE
   secureClient.setInsecure();
