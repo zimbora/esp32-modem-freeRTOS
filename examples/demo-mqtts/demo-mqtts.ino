@@ -99,9 +99,17 @@ bool configure_tls(){
     return false;
   }
 
+  bool has_client_cert = strlen(MQTTS_CLIENT_CERT) > 0;
+  bool has_client_key = strlen(MQTTS_CLIENT_KEY) > 0;
+  if(has_client_cert != has_client_key){
+    Serial.println("set both MQTTS_CLIENT_CERT and MQTTS_CLIENT_KEY or leave both empty");
+    tls_configuration_failed = true;
+    return false;
+  }
+
   secureClient.setCACert(MQTTS_CA_CERT);
 
-  if(strlen(MQTTS_CLIENT_CERT) > 0 && strlen(MQTTS_CLIENT_KEY) > 0){
+  if(has_client_cert){
     secureClient.setCertificate(MQTTS_CLIENT_CERT);
     secureClient.setPrivateKey(MQTTS_CLIENT_KEY);
     Serial.println("using ca certificate and client certificate");

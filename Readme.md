@@ -129,12 +129,13 @@
 ### demo-mqtt
   Two processes running simultaneously:
     - One process is controlling the modem, handling mqtt connection and executing requests
-    - The other one is used to send and received requests to and from the first process
+    - The other one is used to send and receive requests to and from the first process
 
 ### demo-mqtts
   Uses MODEMfreeRTOS for WiFi connectivity and `WiFiClientSecure` + `PubSubClient`
   to connect to a broker over TLS. Supports both CA-certificate validation and
-  insecure TLS mode for testing.
+  insecure TLS mode for testing. WiFi only; it prints a message and exits when
+  `ENABLE_LTE` is enabled.
 
 ### demo-arp-scan
   Perform an active arp scan on network after registration
