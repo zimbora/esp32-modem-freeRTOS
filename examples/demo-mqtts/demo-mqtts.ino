@@ -28,13 +28,8 @@ YOUR_CA_CERTIFICATE_HERE
 -----END CERTIFICATE-----
 )EOF";
 
-const char* MQTTS_CLIENT_CERT = R"EOF(
-
-)EOF";
-
-const char* MQTTS_CLIENT_KEY = R"EOF(
-
-)EOF";
+const char* MQTTS_CLIENT_CERT = "";
+const char* MQTTS_CLIENT_KEY = "";
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length){
   Serial.printf("<< %s ", topic);
@@ -46,7 +41,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length){
 
 void mqtt_subscribe_topics(){
   String topic = mqtt_prefix + "/#";
-  mqttClient.subscribe(topic.c_str(), 1);
+  mqttClient.subscribe(topic.c_str());
   Serial.println("subscribed to " + topic);
 }
 
@@ -149,8 +144,9 @@ void loop() {
 
   if(publish_timeout < millis()){
     String heap_free = String(ESP.getFreeHeap() / 1024);
+    String uptime = String(millis());
     mqttClient.publish((mqtt_prefix + "/heapFree").c_str(), heap_free.c_str(), true);
-    mqttClient.publish((mqtt_prefix + "/uptime").c_str(), String(millis()).c_str(), true);
+    mqttClient.publish((mqtt_prefix + "/uptime").c_str(), uptime.c_str(), true);
     publish_timeout = millis() + 1000;
   }
 #endif
